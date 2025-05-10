@@ -7,7 +7,7 @@ const SettingsScreen = () => {
     try {
       await auth().signOut();
       Alert.alert('Logged out', 'You have been logged out successfully.');
-    } catch (error) {// force touch
+    } catch (error) {// force touc
       console.error('Logout error:', error);
       Alert.alert('Error', 'Failed to log out.');
     }

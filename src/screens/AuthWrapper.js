@@ -9,7 +9,7 @@ const Stack = createStackNavigator();
 
 const AuthWrapper = () => {
   const { user, authInitialized } = useAuth();
-// force touch
+// force touc
   if (!authInitialized) {
     console.log("⏳ Waiting for auth...");
     return null;

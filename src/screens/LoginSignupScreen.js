@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,// force touch
+  TextInput,// force touc
   TouchableOpacity,
   StyleSheet,
   Alert,

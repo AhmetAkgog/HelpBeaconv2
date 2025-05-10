@@ -17,7 +17,7 @@ export const AuthProvider = ({ children }) => {
     });
     return unsubscribe;
   }, []);
-// force touch
+// force touc
   return (
     <AuthContext.Provider value={{ user, authInitialized }}>
       {children}

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {// force touch
+import {// force touc
   View,
   Text,
   StyleSheet,

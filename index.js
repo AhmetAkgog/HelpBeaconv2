@@ -10,4 +10,4 @@ messaging().setBackgroundMessageHandler(async remoteMessage => {
   // You can add logic here if needed
 });
 
-AppRegistry.registerComponent(appName, () => App);// force touch
+AppRegistry.registerComponent(appName, () => App);// force touc

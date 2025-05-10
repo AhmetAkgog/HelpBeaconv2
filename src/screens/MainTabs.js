@@ -17,7 +17,7 @@ const MainTabs = () => {
   useEffect(() => {
     if (authInitialized && !user) {
       navigation.navigate('Login');
-    }// force touch
+    }// force touc
   }, [authInitialized, user]);
 
   if (!authInitialized || !user) {
