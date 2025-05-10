@@ -3,8 +3,10 @@ import { NavigationContainer } from '@react-navigation/native';
 import AuthWrapper from './src/screens/AuthWrapper';
 
 import messaging from '@react-native-firebase/messaging';
-import { getDatabase, ref, set } from 'firebase/database';
-import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import auth from '@react-native-firebase/auth';
+import database from '@react-native-firebase/database'; // ✅ Native version
+
+import { AuthProvider } from './src/contexts/AuthContext';
 
 const registerFcmToken = async (user) => {
   try {
@@ -21,8 +23,7 @@ const registerFcmToken = async (user) => {
     const token = await messaging().getToken();
     console.log("📲 FCM Token:", token);
 
-    const db = getDatabase();
-    await set(ref(db, `tokens/${user.uid}`), token);
+    await database().ref(`tokens/${user.uid}`).set(token);
   } catch (err) {
     console.error("❌ Failed to register FCM token:", err);
   }
@@ -30,18 +31,16 @@ const registerFcmToken = async (user) => {
 
 const App = () => {
   useEffect(() => {
-    const auth = getAuth();
-
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = auth().onAuthStateChanged((user) => {
       if (user) {
         registerFcmToken(user);
       }
     });
 
     const unsubscribeRefresh = messaging().onTokenRefresh(async (newToken) => {
-      const user = getAuth().currentUser;
+      const user = auth().currentUser;
       if (user) {
-        await set(ref(getDatabase(), `tokens/${user.uid}`), newToken);
+        await database().ref(`tokens/${user.uid}`).set(newToken);
       }
     });
 
@@ -52,9 +51,11 @@ const App = () => {
   }, []);
 
   return (
-    <NavigationContainer>
-      <AuthWrapper />
-    </NavigationContainer>
+    <AuthProvider>
+
+        <AuthWrapper />
+
+    </AuthProvider>
   );
 };
 

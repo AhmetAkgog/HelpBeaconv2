@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { getDatabase, ref, set } from 'firebase/database'; // ✅ Firebase DB
 import {
   View,
   Text,
@@ -8,11 +7,8 @@ import {
   StyleSheet,
   Alert,
 } from 'react-native';
-import { auth } from '../firebaseConfig';
-import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-} from 'firebase/auth';
+import auth from '@react-native-firebase/auth';
+import database from '@react-native-firebase/database';
 
 const LoginSignupScreen = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -27,17 +23,16 @@ const LoginSignupScreen = () => {
 
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
+        await auth().signInWithEmailAndPassword(email, password);
         Alert.alert('Success', 'Logged in successfully!');
       } else {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const userCredential = await auth().createUserWithEmailAndPassword(email, password);
         const user = userCredential.user;
 
-        // ✅ Write the user to /users/<uid>
-        const db = getDatabase();
-        await set(ref(db, `users/${user.uid}`), {
-          email: user.email,
-        });
+        // ✅ Save user email and emailLookup safely
+        const safeEmail = email.toLowerCase().replace(/\./g, ',');
+        await database().ref(`users/${user.uid}/email`).set(email);
+        await database().ref(`emailLookup/${safeEmail}`).set(user.uid);
 
         Alert.alert('Success', 'Account created successfully!');
       }

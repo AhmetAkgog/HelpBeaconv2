@@ -8,59 +8,51 @@ import {
   StyleSheet,
   Alert,
 } from 'react-native';
-import { auth } from '../firebaseConfig';
-import {
-  getDatabase,
-  ref,
-  get,
-  set,
-  update,
-  onValue,
-} from 'firebase/database';
+import auth from '@react-native-firebase/auth';
+import database from '@react-native-firebase/database';
+import { useAuth } from '../contexts/AuthContext';
+import { useNavigation } from '@react-navigation/native'
+
 
 const FriendsScreen = () => {
   const [friendEmail, setFriendEmail] = useState('');
   const [friendList, setFriendList] = useState([]);
-  const db = getDatabase();
-  const currentUID = auth.currentUser?.uid;
+  const currentUID = auth().currentUser?.uid;
+
+  const { user, authInitialized } = useAuth();
+  const navigation = useNavigation();
+
+  useEffect(() => {
+    if (authInitialized && !user) {
+      navigation.navigate('Login'); // force redirect
+    }
+  }, [authInitialized, user]);
 
   useEffect(() => {
     if (!currentUID) return;
-    const friendsRef = ref(db, `friendships/${currentUID}/friendList`);
-    const unsubscribe = onValue(friendsRef, (snapshot) => {
+
+    const friendsRef = database().ref(`friendships/${currentUID}/friendList`);
+    const listener = friendsRef.on('value', (snapshot) => {
       const data = snapshot.val();
-      setFriendList(data ? data : []);
+      // ✅ Extract UIDs from object keys
+      setFriendList(data ? Object.keys(data) : []);
     });
-    return () => unsubscribe();
+
+    return () => friendsRef.off('value', listener);
   }, [currentUID]);
 
   const addFriend = async () => {
-    if (!friendEmail || friendEmail === auth.currentUser.email) {
+    if (!friendEmail || friendEmail === auth().currentUser.email) {
       Alert.alert('Invalid email');
       return;
     }
 
     try {
-      const usersRef = ref(db, 'users');
-      const snapshot = await get(usersRef);
-
-      if (!snapshot.exists()) {
-        Alert.alert('User database is empty');
-        return;
-      }
-
-      const usersData = snapshot.val();
-      let foundUID = null;
-
-      for (const uid in usersData) {
-        if (
-          usersData[uid].email &&
-          usersData[uid].email.toLowerCase() === friendEmail.toLowerCase()
-        ) {
-          foundUID = uid;
-          break;
-        }
-      }
+      const safeEmail = friendEmail.toLowerCase().replace(/\./g, ',');
+      const uidSnap = await database()
+        .ref(`emailLookup/${safeEmail}`)
+        .once('value');
+      const foundUID = uidSnap.val();
 
       if (!foundUID) {
         Alert.alert('No user found with that email');
@@ -72,10 +64,10 @@ const FriendsScreen = () => {
         return;
       }
 
-      const updatedList = [...new Set([...friendList, foundUID])];
-      await update(ref(db, `friendships/${currentUID}`), {
-        friendList: updatedList,
-      });
+      // ✅ Write as map entry: friendList/uid = true
+      await database()
+        .ref(`friendships/${currentUID}/friendList/${foundUID}`)
+        .set(true);
 
       setFriendEmail('');
     } catch (error) {
@@ -85,8 +77,9 @@ const FriendsScreen = () => {
   };
 
   const removeFriend = async (uidToRemove) => {
-    const updatedList = friendList.filter((uid) => uid !== uidToRemove);
-    await set(ref(db, `friendships/${currentUID}/friendList`), updatedList);
+    await database()
+      .ref(`friendships/${currentUID}/friendList/${uidToRemove}`)
+      .remove();
   };
 
   const FriendItem = ({ uid }) => {
@@ -95,9 +88,9 @@ const FriendsScreen = () => {
     useEffect(() => {
       const fetchEmail = async () => {
         try {
-          const userSnap = await get(ref(db, `users/${uid}`));
+          const userSnap = await database().ref(`users/${uid}/email`).once('value');
           if (userSnap.exists()) {
-            setEmail(userSnap.val().email);
+            setEmail(userSnap.val());
           } else {
             setEmail('Unknown user');
           }

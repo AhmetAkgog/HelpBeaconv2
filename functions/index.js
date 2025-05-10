@@ -16,13 +16,15 @@ exports.notifyFriendsOnEmergency = database
 
     // 1. Get friend list of the emergency user
     const friendListSnap = await admin.database().ref(`/friendships/${emergencyUid}/friendList`).once("value");
-    const friendList = friendListSnap.val() || [];
+    const friendList = friendListSnap.val();
+    if (!friendList) return null;
 
     if (friendList.length === 0) return null;
 
     // 2. Load FCM tokens of those friends
     const tokens = [];
-    for (const friendUid of friendList) {
+    const friendUids = Object.keys(friendList);
+    for (const friendUid of friendUids) {
       const tokenSnap = await admin.database().ref(`/tokens/${friendUid}`).once("value");
       const token = tokenSnap.val();
       if (token) tokens.push(token);

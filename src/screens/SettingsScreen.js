@@ -1,11 +1,11 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import { auth } from '../firebaseConfig';
+import auth from '@react-native-firebase/auth';
 
 const SettingsScreen = () => {
   const handleLogout = async () => {
     try {
-      await auth.signOut();
+      await auth().signOut();
       Alert.alert('Logged out', 'You have been logged out successfully.');
     } catch (error) {
       console.error('Logout error:', error);

@@ -1,29 +1,33 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
 import LoginSignupScreen from './LoginSignupScreen';
 import MainTabs from './MainTabs';
-import { auth } from '../firebaseConfig';
+import { useAuth } from '../contexts/AuthContext';
+import { NavigationContainer } from '@react-navigation/native';
 
 const Stack = createStackNavigator();
 
 const AuthWrapper = () => {
-  const [user, setUser] = useState(null);
+  const { user, authInitialized } = useAuth();
 
-  useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((userAuth) => {
-      setUser(userAuth);
-    });
-    return unsubscribe;
-  }, []);
+  if (!authInitialized) {
+    console.log("⏳ Waiting for auth...");
+    return null;
+  }
+
+  console.log("✅ authInitialized:", authInitialized);
+  console.log("👤 user:", user);
 
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {user ? (
-        <Stack.Screen name="Home" component={MainTabs} />
-      ) : (
-        <Stack.Screen name="Login" component={LoginSignupScreen} />
-      )}
-    </Stack.Navigator>
+    <NavigationContainer independent={true}>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {user ? (
+          <Stack.Screen name="MainTabs" component={MainTabs} />
+        ) : (
+          <Stack.Screen name="Login" component={LoginSignupScreen} />
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 };
 

@@ -6,13 +6,12 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
-import { getDatabase, ref, get, onValue } from 'firebase/database';
-import { auth } from '../firebaseConfig';
+import database from '@react-native-firebase/database';
+import auth from '@react-native-firebase/auth';
 import { WebView } from 'react-native-webview';
 
 const HomeScreen = () => {
-  const db = getDatabase();
-  const currentUID = auth.currentUser?.uid;
+  const currentUID = auth().currentUser?.uid;
   const [loading, setLoading] = useState(true);
   const [emergencyFriends, setEmergencyFriends] = useState([]);
   const webViewRef = useRef(null);
@@ -22,14 +21,17 @@ const HomeScreen = () => {
 
     const loadEmergencyFriends = async () => {
       try {
-        const friendsRef = ref(db, `friendships/${currentUID}/friendList`);
-        const friendSnap = await get(friendsRef);
-        const friendUIDs = friendSnap.exists() ? friendSnap.val() : [];
+        const friendListRef = database().ref(`friendships/${currentUID}/friendList`);
+        const friendSnap = await friendListRef.once("value");
+        const friendMap = friendSnap.exists() ? friendSnap.val() : {};
+        const friendUIDs = Object.keys(friendMap);
 
         for (const uid of friendUIDs) {
-          const userRef = ref(db, `users/${uid}`);
-          onValue(userRef, (snapshot) => {
+          const userRef = database().ref(`users/${uid}`);
+
+          userRef.on("value", (snapshot) => {
             const data = snapshot.val();
+
             if (data?.emergency) {
               const friend = {
                 uid,

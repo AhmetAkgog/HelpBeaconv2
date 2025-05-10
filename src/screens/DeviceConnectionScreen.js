@@ -15,8 +15,9 @@ import { decode as atob } from 'base-64';
 import { WebView } from 'react-native-webview';
 import { getDatabase, ref, set } from '@react-native-firebase/database'; // ✅ Modular Firebase
 import { getApp } from '@react-native-firebase/app'; // ✅ Modular Firebase
-import { getAuth } from 'firebase/auth';
+import auth from '@react-native-firebase/auth';
 import { firebaseApp } from '../firebaseConfig';
+import { useAuth } from '../contexts/AuthContext'; // ✅ now safe, no cycle
 
 const app = getApp();
 console.log("🔥 Firebase App Name:", app.name);
@@ -27,6 +28,8 @@ const manager = new BleManager();
 const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 
 const DeviceConnectionScreen = () => {
+
+  const { user, authInitialized } = useAuth();
   const [devices, setDevices] = useState([]);
   const deviceMap = useRef(new Map());
   const [connectedDevice, setConnectedDevice] = useState(null);
@@ -67,41 +70,44 @@ const DeviceConnectionScreen = () => {
   };
 
 
-  const uploadSearchStatus = async (deviceId) => {
-    console.log("🚨 uploadSearchStatus() called with:", deviceId);
-    console.log("📡 Writing data:", data);
-    console.log("📍 Firebase path: /emergencies/" + safeDeviceId);
-    const now = new Date().toISOString();
-    const db = getDatabase(getApp());
-    const auth = getAuth();
-    const uid = auth.currentUser?.uid;
-    const safeDeviceId = (deviceId || "unknown").replace(/[:.#$\[\]]/g, '_');
+    const uploadSearchStatus = async (deviceId) => {
+      if (!authInitialized) {
+        console.warn("⏳ Auth is still initializing...");
+        return;
+      }
 
-    const data = {
-      status: "SEARCHING_FOR_GPS",
-      appTimestamp: now,
-      deviceId,
-      uid: uid || null
+      if (!user) {
+        console.warn("🚫 User is not logged in.");
+        return;
+      }
+
+      if (!deviceId) {
+        console.warn("🚫 deviceId is undefined.");
+        return;
+      }
+
+      const uid = user.uid;
+      const now = new Date().toISOString();
+      const db = getDatabase(getApp());
+      const safeDeviceId = deviceId.replace(/[:.#$\[\]]/g, '_');
+
+      const data = {
+        status: "SEARCHING_FOR_GPS",
+        appTimestamp: now,
+        deviceId,
+        uid,
+      };
+
+      console.log("📡 Writing data:", data);
+      console.log("📍 Firebase path: /emergencies/" + safeDeviceId);
+
+      try {
+        await set(ref(db, `/emergencies/${safeDeviceId}`), data);
+        console.log("✅ SUCCESS writing to /emergencies/" + safeDeviceId);
+      } catch (err) {
+        console.error("❌ ERROR writing to /emergencies:", err.message);
+      }
     };
-
-    console.log("💾 Trying to write to /emergencies/" + safeDeviceId, data);
-
-    try {
-      await set(ref(db, `/emergencies/${safeDeviceId}`), data);
-      console.log("✅ SUCCESS writing to /emergencies");
-    } catch (err) {
-      console.error("❌ ERROR writing to /emergencies:", err.message);
-    }
-
-    if (uid) {
-        try {
-          await set(ref(db, `/emergencies/${safeDeviceId}`), data);
-          console.log("✅ SUCCESS writing to /emergencies/" + safeDeviceId);
-        } catch (err) {
-          console.error("❌ ERROR writing to /emergencies:", err.message);
-        }
-    }
-  };
 
   useEffect(() => {
     let stateSub = null;
