@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   PermissionsAndroid,
   Platform,
-  Alert,
+  Alert,// force touch
   Linking,
   Text,
   View,

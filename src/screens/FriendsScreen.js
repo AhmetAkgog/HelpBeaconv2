@@ -12,7 +12,7 @@ import auth from '@react-native-firebase/auth';
 import database from '@react-native-firebase/database';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigation } from '@react-navigation/native'
-
+// force touch
 
 const FriendsScreen = () => {
   const [friendEmail, setFriendEmail] = useState('');

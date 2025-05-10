@@ -5,7 +5,7 @@ const { GoogleAuth } = require("google-auth-library");
 const serviceAccount = require("./helpbeacon-a3a42-55e1c302081e.json"); // ⬅️ This is your downloaded key
 
 admin.initializeApp();
-
+// force touch
 exports.notifyFriendsOnEmergency = database
   .ref("/emergencies/{deviceId}")
   .onWrite(async (change, context) => {

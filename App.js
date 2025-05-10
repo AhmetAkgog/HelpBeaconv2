@@ -14,7 +14,7 @@ const registerFcmToken = async (user) => {
     const enabled =
       permission === messaging.AuthorizationStatus.AUTHORIZED ||
       permission === messaging.AuthorizationStatus.PROVISIONAL;
-
+// force touch
     if (!enabled) {
       console.log("🚫 Notification permission not granted");
       return;
