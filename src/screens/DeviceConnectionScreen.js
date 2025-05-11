@@ -1,8 +1,9 @@
+// Full working version with BLE emergency ping, default GPS, and scoped deviceId fix
 import React, { useEffect, useRef, useState } from 'react';
 import {
   PermissionsAndroid,
   Platform,
-  Alert,// force touc
+  Alert,
   Linking,
   Text,
   View,
@@ -13,52 +14,49 @@ import {
 import { BleManager, State } from 'react-native-ble-plx';
 import { decode as atob } from 'base-64';
 import { WebView } from 'react-native-webview';
-import { getDatabase, ref, set } from '@react-native-firebase/database'; // ✅ Modular Firebase
-import { getApp } from '@react-native-firebase/app'; // ✅ Modular Firebase
+import { getDatabase, ref, set } from '@react-native-firebase/database';
+import { getApp } from '@react-native-firebase/app';
 import auth from '@react-native-firebase/auth';
-import { firebaseApp } from '../firebaseConfig';
-import { useAuth } from '../contexts/AuthContext'; // ✅ now safe, no cycle
+import { useAuth } from '../contexts/AuthContext';
 
 const app = getApp();
-console.log("🔥 Firebase App Name:", app.name);
-console.log("🌐 Firebase DB URL:", app.options.databaseURL);
-
-
 const manager = new BleManager();
 const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 
 const DeviceConnectionScreen = () => {
-
   const { user, authInitialized } = useAuth();
   const [devices, setDevices] = useState([]);
   const deviceMap = useRef(new Map());
   const [connectedDevice, setConnectedDevice] = useState(null);
+  const deviceIdRef = useRef("unknown");
   const [gpsData, setGpsData] = useState('');
   const [gpsLog, setGpsLog] = useState([]);
   const webViewRef = useRef(null);
   const hasSentSearching = useRef(false);
-
+  const lastUploadTimeRef = useRef(0);
+  const bleBufferRef = useRef("");
   const uploadToFirebase = async (lat, lon, deviceId, bootTimeMs) => {
     const now = new Date().toISOString();
+    const uid = auth().currentUser?.uid;
+
     const data = {
       lat,
       lon,
       appTimestamp: now,
       bootTimeMs,
       deviceId,
+      uid, // ✅ include the uid only once
     };
 
     const db = getDatabase(getApp());
     const safeDeviceId = (deviceId || "unknown").replace(/[:.#$\[\]]/g, '_');
 
-    // 1. Save to /emergencies/{deviceId}
     await set(ref(db, `/emergencies/${safeDeviceId}`), data)
       .then(() => console.log("📡 Sent EMERGENCY GPS to Firebase:", data))
       .catch(err => console.error("❌ Firebase upload failed:", err));
 
-    // 2. Also sync emergency state to /users/{uid}
-    const auth = getAuth();
-    const uid = auth.currentUser?.uid;
+    // 🔁 Optional: REMOVE these if no longer needed
+    /*
     if (uid) {
       const gpsString = `${lat},${lon}`;
       await set(ref(db, `users/${uid}/emergency`), true);
@@ -67,47 +65,8 @@ const DeviceConnectionScreen = () => {
     } else {
       console.warn("⚠️ No user logged in – cannot sync to /users/{uid}");
     }
+    */
   };
-
-
-    const uploadSearchStatus = async (deviceId) => {
-      if (!authInitialized) {
-        console.warn("⏳ Auth is still initializing...");
-        return;
-      }
-
-      if (!user) {
-        console.warn("🚫 User is not logged in.");
-        return;
-      }
-
-      if (!deviceId) {
-        console.warn("🚫 deviceId is undefined.");
-        return;
-      }
-
-      const uid = user.uid;
-      const now = new Date().toISOString();
-      const db = getDatabase(getApp());
-      const safeDeviceId = deviceId.replace(/[:.#$\[\]]/g, '_');
-
-      const data = {
-        status: "SEARCHING_FOR_GPS",
-        appTimestamp: now,
-        deviceId,
-        uid,
-      };
-
-      console.log("📡 Writing data:", data);
-      console.log("📍 Firebase path: /emergencies/" + safeDeviceId);
-
-      try {
-        await set(ref(db, `/emergencies/${safeDeviceId}`), data);
-        console.log("✅ SUCCESS writing to /emergencies/" + safeDeviceId);
-      } catch (err) {
-        console.error("❌ ERROR writing to /emergencies:", err.message);
-      }
-    };
 
   useEffect(() => {
     let stateSub = null;
@@ -184,9 +143,10 @@ const DeviceConnectionScreen = () => {
     try {
       const connected = await manager.connectToDevice(device.id);
       setConnectedDevice(connected);
-      const updatedDevice = await connected.discoverAllServicesAndCharacteristics();
+      deviceIdRef.current = device.id;
+      const updated = await connected.discoverAllServicesAndCharacteristics();
 
-      const services = await updatedDevice.services();
+      const services = await updated.services();
 
       for (const service of services) {
         if (service.uuid.toLowerCase() !== SERVICE_UUID.toLowerCase()) continue;
@@ -196,7 +156,7 @@ const DeviceConnectionScreen = () => {
         for (const char of characteristics) {
           if (char.isNotifiable) {
             setTimeout(() => {
-              updatedDevice.monitorCharacteristicForService(
+              connected.monitorCharacteristicForService(
                 service.uuid,
                 char.uuid,
                 (error, characteristic) => {
@@ -206,46 +166,69 @@ const DeviceConnectionScreen = () => {
                   }
 
                   if (characteristic?.value) {
-                    const decoded = atob(characteristic.value).trim();
-                    setGpsData(decoded);
-                    setGpsLog(prev => [decoded, ...prev].slice(0, 20));
+                    const fragment = atob(characteristic.value).trim();
+                    bleBufferRef.current += fragment;
 
-                    if (decoded.startsWith("EMERGENCY:")) {
-                      const raw = decoded.replace("EMERGENCY:", "");
+                    console.log("🧩 BLE Fragment:", fragment);
 
-                      if (raw === "SEARCHING") {
-                        if (!hasSentSearching.current) {
-                              const deviceId = updatedDevice?.id || connectedDevice?.id || "unknown";
-                              console.log("🔗 Using device ID for SEARCHING:", deviceId);
-                              uploadSearchStatus(deviceId);
-                          hasSentSearching.current = true;
-                        }
-                      } else {
-                        const parts = raw.split(",");
-                        if (parts.length === 3) {
-                          const [timestamp, latStr, lonStr] = parts;
+                    // Restart message if a new one begins
+                    if (fragment.includes("EMERGENCY:") || fragment.includes("LOCAL:")) {
+                      bleBufferRef.current = fragment;
+                    }
+
+                    const commaCount = (bleBufferRef.current.match(/,/g) || []).length;
+                    if (commaCount >= 2) {
+                      const fullMsg = bleBufferRef.current.trim();
+                      bleBufferRef.current = "";
+
+                      console.log("📩 Full message:", fullMsg);
+                      setGpsData(fullMsg);
+
+                      const deviceId = deviceIdRef.current;
+
+                      (async () => {
+                        if (fullMsg.startsWith("EMERGENCY:")) {
+                          const raw = fullMsg.replace("EMERGENCY:", "");
+                          const deviceId = deviceIdRef.current;
+
+                          const parts = raw.split(",");
+                          console.log("📦 Parsed parts:", parts);
+
+                          if (parts.length === 1 && raw === parts[0]) {
+                            // SEARCHING case — only timestamp, no lat/lon yet
+                            if (!hasSentSearching.current) {
+                              await uploadToFirebase(0, 0, deviceId, Date.now());
+                              hasSentSearching.current = true;
+                              console.log("⚠️ Sent SEARCHING ping with lat/lon 0");
+                            }
+                          }
+
+                          if (parts.length === 3) {
+                            const [timestamp, latStr, lonStr] = parts;
+                            const lat = parseFloat(latStr);
+                            const lon = parseFloat(lonStr);
+                            console.log("📍 Got GPS fix → lat:", lat, "lon:", lon);
+
+                            if (!isNaN(lat) && !isNaN(lon)) {
+                              const now = Date.now();
+                              if (now - lastUploadTimeRef.current > 15000) {
+                                await uploadToFirebase(lat, lon, deviceId, Number(timestamp));
+                                lastUploadTimeRef.current = now;
+                                console.log("✅ Sent real GPS location to Firebase");
+                              }
+                              webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lon}); true;`);
+                            }
+                          }
+                        } else if (fullMsg.startsWith("LOCAL:")) {
+                          const parts = fullMsg.replace("LOCAL:", "").split(",");
+                          const [, latStr, lonStr] = parts;
                           const lat = parseFloat(latStr);
                           const lon = parseFloat(lonStr);
-
                           if (!isNaN(lat) && !isNaN(lon)) {
-                                const deviceId = updatedDevice?.id || connectedDevice?.id || "unknown";
-                                console.log("🔗 Using device ID for GPS FIX:", deviceId);
-                                uploadSearchStatus(deviceId);
                             webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lon}); true;`);
-                            hasSentSearching.current = false; // Reset
                           }
                         }
-                      }
-                    } else if (decoded.startsWith("LOCAL:")) {
-                      const parts = decoded.replace("LOCAL:", "").split(",");
-                      if (parts.length === 3) {
-                        const [, latStr, lonStr] = parts;
-                        const lat = parseFloat(latStr);
-                        const lon = parseFloat(lonStr);
-                        if (!isNaN(lat) && !isNaN(lon)) {
-                          webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lon}); true;`);
-                        }
-                      }
+                      })();
                     }
                   }
                 }
@@ -255,7 +238,7 @@ const DeviceConnectionScreen = () => {
         }
       }
 
-      updatedDevice.onDisconnected(() => {
+      updated.onDisconnected(() => {
         setConnectedDevice(null);
         setGpsData('');
         setGpsLog([]);
@@ -295,7 +278,11 @@ const DeviceConnectionScreen = () => {
             </Text>
             <Text style={{ fontSize: 20, fontWeight: 'bold' }}>GPS Output</Text>
             {gpsData ? (
-              <Text style={{ fontSize: 16 }}>{gpsData}</Text>
+              <ScrollView style={{ maxHeight: 80 }}>
+                <Text style={{ fontSize: 16 }} numberOfLines={3} adjustsFontSizeToFit>
+                  {gpsData}
+                </Text>
+              </ScrollView>
             ) : (
               <Text style={{ fontSize: 16, color: '#999' }}>Waiting for GPS data...</Text>
             )}

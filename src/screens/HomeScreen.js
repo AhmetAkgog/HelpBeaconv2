@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {// force touc
+import {
   View,
   Text,
   StyleSheet,
@@ -26,42 +26,53 @@ const HomeScreen = () => {
         const friendMap = friendSnap.exists() ? friendSnap.val() : {};
         const friendUIDs = Object.keys(friendMap);
 
-        for (const uid of friendUIDs) {
-          const userRef = database().ref(`users/${uid}`);
+        const emergenciesRef = database().ref("emergencies");
+        emergenciesRef.on("value", async (snapshot) => {
+          const allEmergencies = snapshot.val() || {};
+          const activeFriends = [];
 
-          userRef.on("value", (snapshot) => {
-            const data = snapshot.val();
+          for (const [deviceId, emergencyData] of Object.entries(allEmergencies)) {
+            const uid = emergencyData.uid;
+            if (friendUIDs.includes(uid)) {
+              const profileSnap = await database().ref(`users/${uid}/publicProfile`).once("value");
+              const profile = profileSnap.val();
 
-            if (data?.emergency) {
+              const name =
+                profile?.displayName ||
+                `${profile?.firstName || ''} ${profile?.lastName || ''}`.trim() ||
+                uid;
+
+              const gpsString =
+                emergencyData.lat && emergencyData.lon
+                  ? `${emergencyData.lat},${emergencyData.lon}`
+                  : null;
+
               const friend = {
                 uid,
-                email: data.email || uid,
-                gps: data.gps || null,
+                name,
+                gps: gpsString,
               };
 
-              setEmergencyFriends((prev) => {
-                const filtered = prev.filter((f) => f.uid !== uid);
-                return [...filtered, friend];
-              });
+              activeFriends.push(friend);
 
-              if (data.gps) {
-                const [lat, lon] = data.gps.split(',').map(parseFloat);
+              if (gpsString) {
+                const [lat, lon] = gpsString.split(',').map(parseFloat);
                 if (!isNaN(lat) && !isNaN(lon)) {
                   webViewRef.current?.injectJavaScript(`
-                    updateMap('${uid}', ${lat}, ${lon}, '${data.email || uid}');
+                    updateMap('${uid}', ${lat}, ${lon}, '${name}');
                     true;
                   `);
                 }
               }
-            } else {
-              setEmergencyFriends((prev) => prev.filter((f) => f.uid !== uid));
             }
-          });
-        }
+          }
+
+          setEmergencyFriends(activeFriends);
+        });
 
         setLoading(false);
       } catch (error) {
-        console.error('Error loading emergency friends:', error);
+        console.error("Error loading emergency friends:", error);
         setLoading(false);
       }
     };
@@ -82,7 +93,7 @@ const HomeScreen = () => {
           ) : (
             emergencyFriends.map((friend) => (
               <View key={friend.uid} style={styles.friendItem}>
-                <Text style={styles.friendText}>{friend.email}</Text>
+                <Text style={styles.friendText}>{friend.name}</Text>
                 <Text style={styles.gpsText}>
                   {friend.gps ? `📍 ${friend.gps}` : '⏳ Waiting for GPS fix...'}
                 </Text>

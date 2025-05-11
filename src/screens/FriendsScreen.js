@@ -83,27 +83,29 @@ const FriendsScreen = () => {
   };
 
   const FriendItem = ({ uid }) => {
-    const [email, setEmail] = useState(null);
+    const [name, setName] = useState(null);
 
     useEffect(() => {
-      const fetchEmail = async () => {
+      const fetchName = async () => {
         try {
-          const userSnap = await database().ref(`users/${uid}/email`).once('value');
-          if (userSnap.exists()) {
-            setEmail(userSnap.val());
+          const snap = await database().ref(`users/${uid}/publicProfile`).once('value');
+          const profile = snap.val();
+          if (profile) {
+            setName(profile.displayName || `${profile.firstName} ${profile.lastName}`);
           } else {
-            setEmail('Unknown user');
+            setName('Unknown user');
           }
         } catch (err) {
-          setEmail('Error loading');
+          console.error('Error loading profile:', err);
+          setName('Error loading');
         }
       };
-      fetchEmail();
+      fetchName();
     }, [uid]);
 
     return (
       <View style={styles.friendItem}>
-        <Text>{email || 'Loading...'}</Text>
+        <Text>{name || 'Loading...'}</Text>
         <TouchableOpacity onPress={() => removeFriend(uid)}>
           <Text style={styles.removeText}>Remove</Text>
         </TouchableOpacity>
