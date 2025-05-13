@@ -19,8 +19,6 @@ import { getApp } from '@react-native-firebase/app';
 import auth from '@react-native-firebase/auth';
 import { useAuth } from '../contexts/AuthContext';
 
-const app = getApp();
-const manager = new BleManager();
 const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 
 const DeviceConnectionScreen = () => {
@@ -35,6 +33,8 @@ const DeviceConnectionScreen = () => {
   const hasSentSearching = useRef(false);
   const lastUploadTimeRef = useRef(0);
   const bleBufferRef = useRef("");
+  const managerRef = useRef(new BleManager());
+
   const uploadToFirebase = async (lat, lon, deviceId, bootTimeMs) => {
     const now = new Date().toISOString();
     const uid = auth().currentUser?.uid;
@@ -45,7 +45,7 @@ const DeviceConnectionScreen = () => {
       appTimestamp: now,
       bootTimeMs,
       deviceId,
-      uid, // ✅ include the uid only once
+      uid,
     };
 
     const db = getDatabase(getApp());
@@ -54,22 +54,11 @@ const DeviceConnectionScreen = () => {
     await set(ref(db, `/emergencies/${safeDeviceId}`), data)
       .then(() => console.log("📡 Sent EMERGENCY GPS to Firebase:", data))
       .catch(err => console.error("❌ Firebase upload failed:", err));
-
-    // 🔁 Optional: REMOVE these if no longer needed
-    /*
-    if (uid) {
-      const gpsString = `${lat},${lon}`;
-      await set(ref(db, `users/${uid}/emergency`), true);
-      await set(ref(db, `users/${uid}/gps`), gpsString);
-      console.log("✅ Synced emergency location to /users/" + uid);
-    } else {
-      console.warn("⚠️ No user logged in – cannot sync to /users/{uid}");
-    }
-    */
   };
 
   useEffect(() => {
     let stateSub = null;
+    let bleManager = managerRef.current;
 
     const requestPermissions = async () => {
       const isAndroid12OrAbove = Platform.OS === 'android' && Platform.Version >= 31;
@@ -102,7 +91,7 @@ const DeviceConnectionScreen = () => {
       const granted = await requestPermissions();
       if (!granted) return;
 
-      manager.startDeviceScan(null, null, (error, device) => {
+      bleManager.startDeviceScan(null, null, (error, device) => {
         if (error) {
           console.error('Scan error:', error);
           return;
@@ -121,7 +110,7 @@ const DeviceConnectionScreen = () => {
       const hasPermission = await requestPermissions();
       if (!hasPermission) return;
 
-      stateSub = manager.onStateChange((state) => {
+      stateSub = bleManager.onStateChange((state) => {
         if (state === State.PoweredOn) startScan();
       }, true);
     };
@@ -129,19 +118,28 @@ const DeviceConnectionScreen = () => {
     monitorBluetooth();
 
     return () => {
-      manager.destroy();
+      bleManager.destroy();
+      managerRef.current = new BleManager();
       if (stateSub) stateSub.remove();
     };
   }, []);
 
+  const reconnectBLE = () => {
+    managerRef.current.destroy();
+    managerRef.current = new BleManager();
+  };
+
   const connectToDevice = async (device) => {
-    manager.stopDeviceScan();
+    reconnectBLE();
+    const bleManager = managerRef.current;
+    bleManager.stopDeviceScan();
+
     try {
-      await manager.cancelDeviceConnection(device.id);
+      await bleManager.cancelDeviceConnection(device.id);
     } catch {}
 
     try {
-      const connected = await manager.connectToDevice(device.id);
+      const connected = await bleManager.connectToDevice(device.id);
       setConnectedDevice(connected);
       deviceIdRef.current = device.id;
       const updated = await connected.discoverAllServicesAndCharacteristics();
@@ -171,7 +169,6 @@ const DeviceConnectionScreen = () => {
 
                     console.log("🧩 BLE Fragment:", fragment);
 
-                    // Restart message if a new one begins
                     if (fragment.includes("EMERGENCY:") || fragment.includes("LOCAL:")) {
                       bleBufferRef.current = fragment;
                     }
@@ -189,13 +186,10 @@ const DeviceConnectionScreen = () => {
                       (async () => {
                         if (fullMsg.startsWith("EMERGENCY:")) {
                           const raw = fullMsg.replace("EMERGENCY:", "");
-                          const deviceId = deviceIdRef.current;
-
                           const parts = raw.split(",");
                           console.log("📦 Parsed parts:", parts);
 
                           if (parts.length === 1 && raw === parts[0]) {
-                            // SEARCHING case — only timestamp, no lat/lon yet
                             if (!hasSentSearching.current) {
                               await uploadToFirebase(0, 0, deviceId, Date.now());
                               hasSentSearching.current = true;
@@ -207,8 +201,6 @@ const DeviceConnectionScreen = () => {
                             const [timestamp, latStr, lonStr] = parts;
                             const lat = parseFloat(latStr);
                             const lon = parseFloat(lonStr);
-                            console.log("📍 Got GPS fix → lat:", lat, "lon:", lon);
-
                             if (!isNaN(lat) && !isNaN(lon)) {
                               const now = Date.now();
                               if (now - lastUploadTimeRef.current > 15000) {
@@ -242,8 +234,10 @@ const DeviceConnectionScreen = () => {
         setConnectedDevice(null);
         setGpsData('');
         setGpsLog([]);
+
         setTimeout(() => {
-          manager.startDeviceScan(null, null, (error, device) => {
+          reconnectBLE();
+          managerRef.current.startDeviceScan(null, null, (error, device) => {
             if (error) return;
             if (!device || !device.name || deviceMap.current.has(device.id)) return;
             if (device.name.includes("GPS")) {
@@ -253,7 +247,6 @@ const DeviceConnectionScreen = () => {
           });
         }, 3000);
       });
-
     } catch (e) {
       console.error('Connection error:', e);
       Alert.alert('Failed to connect');
