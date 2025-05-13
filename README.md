@@ -1,4 +1,4 @@
-###NOTE### firebaseConfig.js and google-service.json not included
+###NOTE### project.json and google-service.json not included
 
 npm install
 
