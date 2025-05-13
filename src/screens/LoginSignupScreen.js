@@ -7,9 +7,13 @@ import {
   StyleSheet,
   Alert,
   useColorScheme,
+  Image,
+  ImageBackground,
 } from 'react-native';
+
 import auth from '@react-native-firebase/auth';
 import database from '@react-native-firebase/database';
+import Icon from 'react-native-vector-icons/Feather';
 
 const LoginSignupScreen = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -17,6 +21,7 @@ const LoginSignupScreen = () => {
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
@@ -46,7 +51,7 @@ const LoginSignupScreen = () => {
           firstName,
           lastName,
           displayName: `${firstName} ${lastName}`,
-          email
+          email,
         });
 
         await database().ref(`users/${user.uid}/email`).set(email);
@@ -61,110 +66,158 @@ const LoginSignupScreen = () => {
   };
 
   return (
-    <View style={[styles.container, isDark ? styles.darkContainer : styles.lightContainer]}>
-      <Text style={[styles.header, isDark && styles.darkText]}>
-        {isLogin ? 'Login' : 'Sign Up'}
-      </Text>
+    <ImageBackground
+      source={require('../assets/background.jpeg')}
+      style={styles.background}
+      resizeMode="cover"
+    >
+      <View style={styles.overlay} />
 
-      {!isLogin && (
-        <>
-          <TextInput
-            placeholder="First Name"
-            placeholderTextColor={isDark ? '#aaa' : '#666'}
-            style={[styles.input, isDark && styles.darkInput]}
-            onChangeText={setFirstName}
-            value={firstName}
-          />
-          <TextInput
-            placeholder="Last Name"
-            placeholderTextColor={isDark ? '#aaa' : '#666'}
-            style={[styles.input, isDark && styles.darkInput]}
-            onChangeText={setLastName}
-            value={lastName}
-          />
-        </>
-      )}
+      <View style={styles.cardWrapper}>
+        <Image source={require('../assets/logo.png')} style={styles.logo} resizeMode="contain" />
 
-      <TextInput
-        placeholder="Email"
-        placeholderTextColor={isDark ? '#aaa' : '#666'}
-        style={[styles.input, isDark && styles.darkInput]}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        onChangeText={setEmail}
-        value={email}
-      />
-
-      <TextInput
-        placeholder="Password"
-        placeholderTextColor={isDark ? '#aaa' : '#666'}
-        style={[styles.input, isDark && styles.darkInput]}
-        secureTextEntry
-        onChangeText={setPassword}
-        value={password}
-      />
-
-      <TouchableOpacity style={styles.button} onPress={handleAuth}>
-        <Text style={styles.buttonText}>
-          {isLogin ? 'Login' : 'Create Account'}
+        <Text style={styles.header}>
+          {isLogin ? 'Login for Emergency Access' : 'Register for Emergency Access'}
         </Text>
-      </TouchableOpacity>
 
-      <TouchableOpacity onPress={() => setIsLogin(!isLogin)}>
-        <Text style={[styles.toggleText, isDark && styles.darkToggleText]}>
-          {isLogin
-            ? "Don't have an account? Sign up"
-            : 'Already have an account? Login'}
-        </Text>
-      </TouchableOpacity>
-    </View>
+        <View style={styles.card}>
+          {!isLogin && (
+            <>
+              <TextInput
+                placeholder="First Name"
+                placeholderTextColor="#666"
+                style={styles.input}
+                onChangeText={setFirstName}
+                value={firstName}
+              />
+              <TextInput
+                placeholder="Last Name"
+                placeholderTextColor="#666"
+                style={styles.input}
+                onChangeText={setLastName}
+                value={lastName}
+              />
+            </>
+          )}
+
+          <TextInput
+            placeholder="Email"
+            placeholderTextColor="#666"
+            style={styles.input}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            onChangeText={setEmail}
+            value={email}
+          />
+
+          <View style={styles.passwordContainer}>
+            <TextInput
+              placeholder="Password"
+              placeholderTextColor="#666"
+              style={[styles.input, styles.passwordInput]}
+              secureTextEntry={!showPassword}
+              onChangeText={setPassword}
+              value={password}
+            />
+            <TouchableOpacity onPress={() => setShowPassword(prev => !prev)} style={styles.toggleIcon}>
+              <Icon name={showPassword ? 'eye' : 'eye-off'} size={22} color="#333" />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity style={styles.button} onPress={handleAuth}>
+            <View style={styles.buttonContent}>
+              <Icon name="log-in" size={18} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={styles.buttonText}>
+                {isLogin ? 'LOGIN' : 'SIGN UP'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => setIsLogin(!isLogin)}>
+            <Text style={styles.toggleText}>
+              {isLogin ? (
+                <>Don't have an account? <Text style={styles.underlineBold}>Sign up</Text></>
+              ) : (
+                <>Already have an account? <Text style={styles.underlineBold}>Login</Text></>
+              )}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </ImageBackground>
   );
 };
 
 export default LoginSignupScreen;
 
+const LOGO_RED = '#FF1010';
+
 const styles = StyleSheet.create({
-  container: {
+  background: {
+    flex: 1,
+  },
+  cardWrapper: {
     flex: 1,
     justifyContent: 'center',
-    padding: 24,
+    alignItems: 'center',
   },
-  lightContainer: {
+  card: {
+    width: '90%',
+    maxWidth: 400,
+    padding: 20,
     backgroundColor: '#fff',
+    borderRadius: 16,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
   },
-  darkContainer: {
-    backgroundColor: '#000',
+  logo: {
+    width: 200,
+    height: 200,
+    alignSelf: 'center',
+    marginBottom: 12,
+    borderRadius: 10,
   },
   header: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    marginBottom: 24,
+    fontSize: 20,
+    fontWeight: '700',
     textAlign: 'center',
-    color: '#000',
-  },
-  darkText: {
-    color: '#fff',
+    marginBottom: 20,
+    color: '#2e2c2c',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: LOGO_RED,
     padding: 12,
     marginBottom: 16,
-    borderRadius: 8,
-    color: '#000',
+    borderRadius: 10,
     backgroundColor: '#fff',
+    color: '#000',
   },
-  darkInput: {
-    borderColor: '#555',
-    backgroundColor: '#111',
-    color: '#fff',
+  passwordContainer: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  passwordInput: {
+    paddingRight: 48,
+  },
+  toggleIcon: {
+    position: 'absolute',
+    right: 16,
+    top: 15,
   },
   button: {
-    backgroundColor: '#1e90ff',
+    backgroundColor: LOGO_RED,
     padding: 14,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   buttonText: {
     color: '#fff',
@@ -173,10 +226,11 @@ const styles = StyleSheet.create({
   },
   toggleText: {
     textAlign: 'center',
-    color: '#333',
+    color: '#444',
     marginTop: 12,
   },
-  darkToggleText: {
-    color: '#aaa',
+  underlineBold: {
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
 });
