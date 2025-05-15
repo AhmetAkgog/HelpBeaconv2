@@ -7,7 +7,8 @@ npx react-native run-android
 If some of the libraries make trouble 
 go -> node_modules/specificlibrary/android/build.gradle
 
-Add this line 
+Add this line
+ 
     buildFeatures {
         buildConfig true
     }
