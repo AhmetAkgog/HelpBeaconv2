@@ -1,4 +1,4 @@
-###NOTE### firebaseConfig.js and google-service.json not included
+###NOTE### project.json and google-service.json not included
 
 npm install
 
@@ -7,7 +7,8 @@ npx react-native run-android
 If some of the libraries make trouble 
 go -> node_modules/specificlibrary/android/build.gradle
 
-Add this line 
+Add this line
+ 
     buildFeatures {
         buildConfig true
     }
