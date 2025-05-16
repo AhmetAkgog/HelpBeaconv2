@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  ImageBackground
 } from 'react-native';
 import database from '@react-native-firebase/database';
 import auth from '@react-native-firebase/auth';
@@ -97,55 +98,120 @@ const HomeScreen = () => {
   }, [currentUID]);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>🚨 Emergency Friends</Text>
+      <ImageBackground
+        source={require('../assets/Background.jpeg')}
+        style={styles.background}
+        resizeMode="cover"
+      >
+        <View style={styles.overlay} />
 
-      {loading ? (
-        <ActivityIndicator size="large" color="#1e90ff" />
-      ) : (
-        <ScrollView style={styles.list}>
-          {emergencyFriends.length === 0 ? (
-            <Text style={styles.empty}>None of your friends are in emergency.</Text>
-          ) : (
-            emergencyFriends.map((friend) => (
-              <View key={`${friend.uid}_${friend.source}`} style={styles.friendItem}>
-                <Text style={styles.friendText}>{friend.name}</Text>
-                <Text style={styles.gpsText}>
-                  {friend.gps ? `📍 ${friend.gps}` : '⏳ Waiting for GPS...'}
+        <View style={styles.container}>
+          <Text style={styles.title}>🚨 Emergency Friends</Text>
+
+          <ScrollView style={styles.list}>
+            {emergencyFriends.length === 0 ? (
+              <View style={styles.friendItem}>
+                <Text style={styles.noCallText}>
+                  Currently, there is no emergency call.
                 </Text>
-                <Text style={styles.sourceText}>{friend.source.toUpperCase()}</Text>
               </View>
-            ))
-          )}
-        </ScrollView>
-      )}
+            ) : (
+              emergencyFriends.map((friend) => (
+                <View key={friend.uid} style={styles.friendItem}>
+                  <Text style={styles.friendText}> {friend.name ? friend.name : 'The person in emergency'}</Text>
+                  <Text style={styles.gpsText}>{friend.gps ? `📍${friend.gps}` : '⏳ Waiting for GPS fix...'}</Text>
+                </View>
+              ))
+            )}
+          </ScrollView>
 
-      <WebView
-        ref={webViewRef}
-        source={{ uri: 'file:///android_asset/map_tracker.html' }}
-        style={styles.map}
-        onLoadEnd={() => {
-          console.log("Map loaded");
-        }}
-      />
-    </View>
-  );
-};
+          <View style={styles.mapContainer}>
+            <WebView
+              ref={webViewRef}
+              source={{ uri: 'file:///android_asset/map_tracker.html' }}
+              originWhitelist={['*']}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              style={styles.map}
+              onLoadEnd={() => console.log('✅ Map loaded')}
+              onError={(e) => console.log('❌ WebView error:', e.nativeEvent)}
+            />
+          </View>
+        </View>
+      </ImageBackground>
+    );
+  };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10, backgroundColor: '#fff' },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 10 },
-  list: { maxHeight: 200, marginBottom: 10 },
-  friendItem: {
-    borderBottomWidth: 1,
-    borderColor: '#eee',
-    paddingVertical: 8,
-  },
-  friendText: { fontSize: 16, fontWeight: '500' },
-  gpsText: { fontSize: 14, color: '#666' },
-  sourceText: { fontSize: 12, color: '#999', fontStyle: 'italic' },
-  empty: { textAlign: 'center', color: '#999', marginTop: 20 },
-  map: { flex: 1, borderWidth: 1, borderColor: '#ccc' },
-});
+  export default HomeScreen;
 
-export default HomeScreen;
+  const styles = StyleSheet.create({
+    background: {
+      flex: 1,
+    },
+    overlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+    },
+    container: {
+      flex: 1,
+      padding: 16,
+    },
+    title: {
+      fontSize: 30,
+      fontWeight: 'bold',
+      color: '#fff',
+      textAlign: 'center',
+      marginVertical: 24,
+      textShadowColor: '#000',
+      textShadowOffset: { width: 1, height: 1 },
+      textShadowRadius: 4,
+      marginRight: 7,
+    },
+    list: {
+      maxHeight: 250,
+      marginBottom: 16,
+    },
+    friendItem: {
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      borderRadius: 16,
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      marginBottom: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+      flexDirection: 'column',
+      marginTop: 20,
+    },
+    friendText: {
+      fontSize: 24,
+      fontWeight: '700',
+      color: '#1a1a1a',
+      marginBottom: 6,
+    },
+    gpsText: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: '#555',
+      marginLeft: 2,
+    },
+    mapContainer: {
+      height: 440,
+      borderRadius: 16,
+      overflow: 'hidden',
+      borderWidth: 2,
+      borderColor: '#fff',
+      marginBottom: 100,
+    },
+    map: {
+      flex: 1,
+    },
+    noCallText: {
+      fontSize: 24,
+      color: '#1a1a1a',
+      textAlign: 'center',
+      fontStyle: 'italic',
+    },
+  });
