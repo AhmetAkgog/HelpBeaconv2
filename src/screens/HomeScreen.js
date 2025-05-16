@@ -15,13 +15,6 @@ const HomeScreen = () => {
   const [emergencyFriends, setEmergencyFriends] = useState([]);
   const webViewRef = useRef(null);
 
-    // useEffect(() => {
-    //   // TESTING OTHER STATEMENTS
-    //   setEmergencyFriends([
-    //     { uid: 'test1' , name : 'Zeynep Gulal', gps : '41.4542,56.7687'},
-    //   ]);
-    // }, []);
-
   useEffect(() => {
     if (!currentUID) return;
 
@@ -197,7 +190,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 2,
     borderColor: '#fff',
-    marginBottom: 115,
+    marginBottom: 100,
   },
   map: {
     flex: 1,

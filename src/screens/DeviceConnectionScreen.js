@@ -20,10 +20,7 @@ import { getDatabase, ref, set } from '@react-native-firebase/database';
 import { getApp } from '@react-native-firebase/app';
 import auth from '@react-native-firebase/auth';
 import { useAuth } from '../contexts/AuthContext';
-// const MOCK_DEVICES = [
-//   { id: 'MOCK-DEVICE-001', name: 'GPS Tracker A' },
-//   { id: 'MOCK-DEVICE-002', name: 'HelpBeacon Collar B' },
-// ];
+
 const app = getApp();
 const manager = new BleManager();
 const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
@@ -50,7 +47,7 @@ const DeviceConnectionScreen = () => {
       appTimestamp: now,
       bootTimeMs,
       deviceId,
-      uid, // ✅ include the uid only once
+      uid,
     };
 
     const db = getDatabase(getApp());
@@ -59,18 +56,6 @@ const DeviceConnectionScreen = () => {
     await set(ref(db, `/emergencies/${safeDeviceId}`), data)
       .then(() => console.log("📡 Sent EMERGENCY GPS to Firebase:", data))
       .catch(err => console.error("❌ Firebase upload failed:", err));
-
-    // 🔁 Optional: REMOVE these if no longer needed
-    /*
-    if (uid) {
-      const gpsString = `${lat},${lon}`;
-      await set(ref(db, `users/${uid}/emergency`), true);
-      await set(ref(db, `users/${uid}/gps`), gpsString);
-      console.log("✅ Synced emergency location to /users/" + uid);
-    } else {
-      console.warn("⚠️ No user logged in – cannot sync to /users/{uid}");
-    }
-    */
   };
 
   useEffect(() => {
@@ -176,7 +161,6 @@ const DeviceConnectionScreen = () => {
 
                     console.log("🧩 BLE Fragment:", fragment);
 
-                    // Restart message if a new one begins
                     if (fragment.includes("EMERGENCY:") || fragment.includes("LOCAL:")) {
                       bleBufferRef.current = fragment;
                     }
@@ -200,7 +184,6 @@ const DeviceConnectionScreen = () => {
                           console.log("📦 Parsed parts:", parts);
 
                           if (parts.length === 1 && raw === parts[0]) {
-                            // SEARCHING case — only timestamp, no lat/lon yet
                             if (!hasSentSearching.current) {
                               await uploadToFirebase(0, 0, deviceId, Date.now());
                               hasSentSearching.current = true;
@@ -274,9 +257,8 @@ const DeviceConnectionScreen = () => {
   );
 
 return (
-    <ImageBackground source={require('../assets/Background.jpeg')} style={styles.background}>
-      <View style={styles.overlay} />
-
+  <ImageBackground source={require('../assets/Background.jpeg')} style={styles.background}>
+    <View style={styles.overlay} />
       <View style={styles.container}>
         <Text style={styles.title}>🔗 Device Connection</Text>
         <ScrollView>
@@ -302,7 +284,7 @@ return (
               </TouchableOpacity>
             )}
             ListHeaderComponent={
-              <Text style={styles.subTitle}>Nearby Mock Devices</Text>
+              <Text style={styles.subTitle}>Nearby Gps Devices</Text>
             }
           />
         )}
@@ -330,8 +312,6 @@ return (
 
 export default DeviceConnectionScreen;
 const styles = StyleSheet.create({
-  // deviceItem: { padding: 15, borderBottomWidth: 1, borderColor: '#ccc' },
-  // deviceId: { fontSize: 12, color: '#888' },
   background: { flex: 1 },
   overlay: {
     ...StyleSheet.absoluteFillObject,
@@ -388,21 +368,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 2,
     borderColor: '#fff',
-    marginBottom: 115,
+    marginBottom: 100,
   },
   map: { flex: 1 },
-    datacard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginBottom: 19,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    flexDirection: 'column',
-    marginTop: 20,
-  },
 });
