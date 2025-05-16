@@ -17,67 +17,83 @@ const HomeScreen = () => {
   const webViewRef = useRef(null);
 
   useEffect(() => {
-    if (!currentUID) return;
+    const loadEverything = async () => {
+      if (!currentUID) return;
 
-    const loadEmergencyFriends = async () => {
-      try {
-        const friendListRef = database().ref(`friendships/${currentUID}/friendList`);
-        const friendSnap = await friendListRef.once("value");
-        const friendMap = friendSnap.exists() ? friendSnap.val() : {};
-        const friendUIDs = Object.keys(friendMap);
+      const friendListRef = database().ref(`friendships/${currentUID}/friendList`);
+      const friendSnap = await friendListRef.once("value");
+      const friendMap = friendSnap.exists() ? friendSnap.val() : {};
 
-        const emergenciesRef = database().ref("emergencies");
-        emergenciesRef.on("value", async (snapshot) => {
-          const allEmergencies = snapshot.val() || {};
-          const activeFriends = [];
+      const activeFriends = [];
 
-          for (const [deviceId, emergencyData] of Object.entries(allEmergencies)) {
-            const uid = emergencyData.uid;
-            if (friendUIDs.includes(uid)) {
-              const profileSnap = await database().ref(`users/${uid}/publicProfile`).once("value");
-              const profile = profileSnap.val();
+      for (const friendId in friendMap) {
+        if (friendId === currentUID) continue;
+        console.log("👀 Checking friend:", friendId);
 
-              const name =
-                profile?.displayName ||
-                `${profile?.firstName || ''} ${profile?.lastName || ''}`.trim() ||
-                uid;
+        try {
+          const profilePath = `users/${friendId}/publicProfile`;
+          const profileSnap = await database().ref(profilePath).once("value");
 
-              const gpsString =
-                emergencyData.lat && emergencyData.lon
-                  ? `${emergencyData.lat},${emergencyData.lon}`
-                  : null;
-
-              const friend = {
-                uid,
-                name,
-                gps: gpsString,
-              };
-
-              activeFriends.push(friend);
-
-              if (gpsString) {
-                const [lat, lon] = gpsString.split(',').map(parseFloat);
-                if (!isNaN(lat) && !isNaN(lon)) {
-                  webViewRef.current?.injectJavaScript(`
-                    updateMap('${uid}', ${lat}, ${lon}, '${name}');
-                    true;
-                  `);
-                }
-              }
-            }
+          if (!profileSnap.exists()) {
+            console.warn(`⚠️ publicProfile missing for ${friendId}`);
+            continue;
           }
 
-          setEmergencyFriends(activeFriends);
-        });
+          const profile = profileSnap.val();
+          console.log(`✅ Accessed ${profilePath}`, profile);
 
-        setLoading(false);
-      } catch (error) {
-        console.error("Error loading emergency friends:", error);
-        setLoading(false);
+          const name = profile?.displayName?.trim() ||
+                       `${profile?.firstName || ''} ${profile?.lastName || ''}`.trim() ||
+                       friendId;
+
+          let snapshot = null;
+          try {
+            const emergenciesRef = database().ref("emergencies");
+            snapshot = await emergenciesRef
+              .orderByChild("uid")
+              .equalTo(friendId)
+              .limitToLast(1)
+              .once("value");
+
+            console.log(`✅ Fetched emergency for ${friendId}:`, snapshot.val());
+          } catch (err) {
+            console.error(`❌ Failed to access emergencies for ${friendId}:`, err);
+            continue;
+          }
+
+          if (!snapshot) continue;
+
+          snapshot.forEach(child => {
+            const val = child.val();
+            if (val.lat && val.lon) {
+              activeFriends.push({
+                uid: friendId,
+                name,
+                gps: `${val.lat},${val.lon}`,
+                source: 'emergency'
+              });
+
+              webViewRef.current?.injectJavaScript(`
+                updateMap('${friendId}', ${val.lat}, ${val.lon}, '${name}');
+                true;
+              `);
+            }
+          });
+        } catch (error) {
+          console.error(`Error processing friend ${friendId}:`, error);
+        }
       }
+
+      setEmergencyFriends(activeFriends);
+      setLoading(false);
     };
 
-    loadEmergencyFriends();
+    loadEverything();
+
+    return () => {
+      database().ref("emergencies").off();
+      database().ref("friendships").off();
+    };
   }, [currentUID]);
 
   return (
@@ -92,11 +108,12 @@ const HomeScreen = () => {
             <Text style={styles.empty}>None of your friends are in emergency.</Text>
           ) : (
             emergencyFriends.map((friend) => (
-              <View key={friend.uid} style={styles.friendItem}>
+              <View key={`${friend.uid}_${friend.source}`} style={styles.friendItem}>
                 <Text style={styles.friendText}>{friend.name}</Text>
                 <Text style={styles.gpsText}>
-                  {friend.gps ? `📍 ${friend.gps}` : '⏳ Waiting for GPS fix...'}
+                  {friend.gps ? `📍 ${friend.gps}` : '⏳ Waiting for GPS...'}
                 </Text>
+                <Text style={styles.sourceText}>{friend.source.toUpperCase()}</Text>
               </View>
             ))
           )}
@@ -106,20 +123,14 @@ const HomeScreen = () => {
       <WebView
         ref={webViewRef}
         source={{ uri: 'file:///android_asset/map_tracker.html' }}
-        originWhitelist={['*']}
-        javaScriptEnabled={true}
-        domStorageEnabled={true}
         style={styles.map}
         onLoadEnd={() => {
-          console.log("✅ Tracker Map loaded");
+          console.log("Map loaded");
         }}
-        onError={(e) => console.log("❌ WebView error:", e.nativeEvent)}
       />
     </View>
   );
 };
-
-export default HomeScreen;
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10, backgroundColor: '#fff' },
@@ -132,6 +143,9 @@ const styles = StyleSheet.create({
   },
   friendText: { fontSize: 16, fontWeight: '500' },
   gpsText: { fontSize: 14, color: '#666' },
+  sourceText: { fontSize: 12, color: '#999', fontStyle: 'italic' },
   empty: { textAlign: 'center', color: '#999', marginTop: 20 },
   map: { flex: 1, borderWidth: 1, borderColor: '#ccc' },
 });
+
+export default HomeScreen;

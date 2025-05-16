@@ -1,4 +1,3 @@
-// Full working version with BLE emergency ping, default GPS, and scoped deviceId fix
 import React, { useEffect, useRef, useState } from 'react';
 import {
   PermissionsAndroid,
@@ -18,8 +17,25 @@ import { getDatabase, ref, set } from '@react-native-firebase/database';
 import { getApp } from '@react-native-firebase/app';
 import auth from '@react-native-firebase/auth';
 import { useAuth } from '../contexts/AuthContext';
+import Geolocation from '@react-native-community/geolocation';
 
 const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
+
+// Helper function to calculate distance between coordinates
+function distanceBetween(pos1, pos2) {
+  const R = 6371e3; // Earth radius in meters
+  const φ1 = pos1.lat * Math.PI/180;
+  const φ2 = pos2.lat * Math.PI/180;
+  const Δφ = (pos2.lat-pos1.lat) * Math.PI/180;
+  const Δλ = (pos2.lon-pos1.lon) * Math.PI/180;
+
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+  return R * c;
+}
 
 const DeviceConnectionScreen = () => {
   const { user, authInitialized } = useAuth();
@@ -34,10 +50,28 @@ const DeviceConnectionScreen = () => {
   const lastUploadTimeRef = useRef(0);
   const bleBufferRef = useRef("");
   const managerRef = useRef(new BleManager());
+  const [usePhoneGps, setUsePhoneGps] = useState(false);
+  const phoneGpsWatchIdRef = useRef(null);
 
-  const uploadToFirebase = async (lat, lon, deviceId, bootTimeMs) => {
+  // Anti-spam tracking refs
+  const lastEmergencyNotificationRef = useRef(null);
+  const lastPhoneGpsLocationRef = useRef(null);
+  const lastLocalNotificationRef = useRef(null);
+
+  const uploadToFirebase = async (lat, lon, deviceId, bootTimeMs, source = 'BLE', isInitial = false) => {
     const now = new Date().toISOString();
     const uid = auth().currentUser?.uid;
+
+    // Only send notification for initial emergency or significant location change
+    const shouldNotify = isInitial ||
+                       (source === 'PHONE' &&
+                        (!lastPhoneGpsLocationRef.current ||
+                         distanceBetween(lastPhoneGpsLocationRef.current, {lat, lon}) > 50));
+
+    if (!shouldNotify && source === 'PHONE') {
+      console.log("📍 Phone GPS Update (throttled)");
+      return;
+    }
 
     const data = {
       lat,
@@ -46,19 +80,41 @@ const DeviceConnectionScreen = () => {
       bootTimeMs,
       deviceId,
       uid,
+      source,
+      isInitialNotification: isInitial
     };
 
     const db = getDatabase(getApp());
     const safeDeviceId = (deviceId || "unknown").replace(/[:.#$\[\]]/g, '_');
 
     await set(ref(db, `/emergencies/${safeDeviceId}`), data)
-      .then(() => console.log("📡 Sent EMERGENCY GPS to Firebase:", data))
+      .then(() => {
+        console.log("📡 Sent GPS to Firebase:", {source, isInitial});
+        if (source === 'PHONE') {
+          lastPhoneGpsLocationRef.current = {lat, lon};
+        }
+      })
       .catch(err => console.error("❌ Firebase upload failed:", err));
   };
+
+
+  // Add cleanup effect
+  useEffect(() => {
+    return () => {
+      if (phoneGpsWatchIdRef.current !== null) {
+        Geolocation.clearWatch(phoneGpsWatchIdRef.current);
+        console.log('🛑 Cleaned up phone GPS on component unmount');
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let stateSub = null;
     let bleManager = managerRef.current;
+
+    const openLocationPermissionSettings = () => {
+      Linking.openSettings();
+    };
 
     const requestPermissions = async () => {
       const isAndroid12OrAbove = Platform.OS === 'android' && Platform.Version >= 31;
@@ -72,19 +128,17 @@ const DeviceConnectionScreen = () => {
       }
 
       const results = await PermissionsAndroid.requestMultiple(permissions);
-      const denied = Object.entries(results).filter(
-        ([, result]) => result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN
+      const allGranted = Object.values(results).every(
+        r => r === PermissionsAndroid.RESULTS.GRANTED
       );
 
-      if (denied.length > 0) {
-        Alert.alert('Permission Required', 'Some permissions were permanently denied. Please enable them in app settings.', [
-          { text: 'Open Settings', onPress: () => Linking.openSettings() },
-          { text: 'Cancel', style: 'cancel' },
-        ]);
-        return false;
+      if (Platform.OS === 'android' && Platform.Version >= 29) {
+        await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION
+        );
       }
 
-      return Object.values(results).every(r => r === PermissionsAndroid.RESULTS.GRANTED);
+      return allGranted;
     };
 
     const startScan = async () => {
@@ -92,13 +146,8 @@ const DeviceConnectionScreen = () => {
       if (!granted) return;
 
       bleManager.startDeviceScan(null, null, (error, device) => {
-        if (error) {
-          console.error('Scan error:', error);
-          return;
-        }
-
+        if (error) return;
         if (!device || !device.name || deviceMap.current.has(device.id)) return;
-
         if (device.name.includes('GPS')) {
           deviceMap.current.set(device.id, device);
           setDevices(Array.from(deviceMap.current.values()));
@@ -129,129 +178,187 @@ const DeviceConnectionScreen = () => {
     managerRef.current = new BleManager();
   };
 
-  const connectToDevice = async (device) => {
-    reconnectBLE();
-    const bleManager = managerRef.current;
-    bleManager.stopDeviceScan();
+    const connectToDevice = async (device) => {
+      reconnectBLE();
+      const bleManager = managerRef.current;
+      bleManager.stopDeviceScan();
 
-    try {
-      await bleManager.cancelDeviceConnection(device.id);
-    } catch {}
+      try {
+        await bleManager.cancelDeviceConnection(device.id);
+      } catch {}
 
-    try {
-      const connected = await bleManager.connectToDevice(device.id);
-      setConnectedDevice(connected);
-      deviceIdRef.current = device.id;
-      const updated = await connected.discoverAllServicesAndCharacteristics();
+      try {
+        const connected = await bleManager.connectToDevice(device.id);
+        setConnectedDevice(connected);
+        deviceIdRef.current = device.id;
+        const updated = await connected.discoverAllServicesAndCharacteristics();
 
-      const services = await updated.services();
+        const services = await updated.services();
 
-      for (const service of services) {
-        if (service.uuid.toLowerCase() !== SERVICE_UUID.toLowerCase()) continue;
+        for (const service of services) {
+          if (service.uuid.toLowerCase() !== SERVICE_UUID.toLowerCase()) continue;
 
-        const characteristics = await service.characteristics();
+          const characteristics = await service.characteristics();
 
-        for (const char of characteristics) {
-          if (char.isNotifiable) {
-            setTimeout(() => {
-              connected.monitorCharacteristicForService(
-                service.uuid,
-                char.uuid,
-                (error, characteristic) => {
-                  if (error) {
-                    console.error('Monitor error:', error);
-                    return;
-                  }
-
-                  if (characteristic?.value) {
-                    const fragment = atob(characteristic.value).trim();
-                    bleBufferRef.current += fragment;
-
-                    console.log("🧩 BLE Fragment:", fragment);
-
-                    if (fragment.includes("EMERGENCY:") || fragment.includes("LOCAL:")) {
-                      bleBufferRef.current = fragment;
+          for (const char of characteristics) {
+            if (char.isNotifiable) {
+              setTimeout(() => {
+                connected.monitorCharacteristicForService(
+                  service.uuid,
+                  char.uuid,
+                  (error, characteristic) => {
+                    if (error) {
+                      console.error('Monitor error:', error);
+                      return;
                     }
 
-                    const commaCount = (bleBufferRef.current.match(/,/g) || []).length;
-                    if (commaCount >= 2) {
+                    if (characteristic?.value) {
+                      const fragment = atob(characteristic.value).trim();
+                      bleBufferRef.current += fragment;
+
+                      console.log("🧩 BLE Fragment:", fragment);
+
+                      if (fragment.includes("EMERGENCY:") || fragment.includes("LOCAL:")) {
+                        bleBufferRef.current = fragment;
+                      }
+
                       const fullMsg = bleBufferRef.current.trim();
-                      bleBufferRef.current = "";
+                      const isEmergency = fullMsg.startsWith("EMERGENCY:");
+                      const commaCount = (fullMsg.match(/,/g) || []).length;
 
-                      console.log("📩 Full message:", fullMsg);
-                      setGpsData(fullMsg);
+                      // 💡 Handle EMERGENCY with NO GPS yet
+                      if (isEmergency && commaCount === 0 && !hasSentSearching.current) {
+                        const now = Date.now();
 
-                      const deviceId = deviceIdRef.current;
+                        // Only send initial emergency if we haven't sent one recently
+                        if (!lastEmergencyNotificationRef.current ||
+                            now - lastEmergencyNotificationRef.current > 30000) {
+                          console.log("⚠️ Emergency mode - starting phone GPS fallback");
+                          uploadToFirebase(0, 0, deviceIdRef.current, now, 'BLE', true);
+                          lastEmergencyNotificationRef.current = now;
+                        }
 
-                      (async () => {
-                        if (fullMsg.startsWith("EMERGENCY:")) {
-                          const raw = fullMsg.replace("EMERGENCY:", "");
-                          const parts = raw.split(",");
-                          console.log("📦 Parsed parts:", parts);
+                        hasSentSearching.current = true;
+                        bleBufferRef.current = "";
 
-                          if (parts.length === 1 && raw === parts[0]) {
-                            if (!hasSentSearching.current) {
-                              await uploadToFirebase(0, 0, deviceId, Date.now());
-                              hasSentSearching.current = true;
-                              console.log("⚠️ Sent SEARCHING ping with lat/lon 0");
+                        if (phoneGpsWatchIdRef.current === null) {
+                          setUsePhoneGps(true);
+                          phoneGpsWatchIdRef.current = Geolocation.watchPosition(
+                            (pos) => {
+                              const { latitude, longitude } = pos.coords;
+                              uploadToFirebase(latitude, longitude, deviceIdRef.current, Date.now(), 'PHONE');
+                              webViewRef.current?.injectJavaScript(`updateMap(${latitude}, ${longitude}); true;`);
+                            },
+                            (err) => console.error("📵 Phone GPS Error:", err),
+                            {
+                              enableHighAccuracy: true,
+                              distanceFilter: 50, // Only update when moved 50+ meters
+                              interval: 10000,
+                              fastestInterval: 5000,
+                              timeout: 10000,
+                              maximumAge: 0
                             }
-                          }
+                          );
+                        }
+                        return;
+                      }
 
-                          if (parts.length === 3) {
-                            const [timestamp, latStr, lonStr] = parts;
-                            const lat = parseFloat(latStr);
-                            const lon = parseFloat(lonStr);
-                            if (!isNaN(lat) && !isNaN(lon)) {
-                              const now = Date.now();
-                              if (now - lastUploadTimeRef.current > 15000) {
-                                await uploadToFirebase(lat, lon, deviceId, Number(timestamp));
-                                lastUploadTimeRef.current = now;
-                                console.log("✅ Sent real GPS location to Firebase");
-                              }
-                              webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lon}); true;`);
-                            }
-                          }
-                        } else if (fullMsg.startsWith("LOCAL:")) {
-                          const parts = fullMsg.replace("LOCAL:", "").split(",");
-                          const [, latStr, lonStr] = parts;
+                      // ✅ Handle EMERGENCY with GPS
+                      if (isEmergency && commaCount >= 2) {
+                        const raw = fullMsg.replace("EMERGENCY:", "");
+                        const parts = raw.split(",");
+
+                        if (parts.length === 3) {
+                          const [timestamp, latStr, lonStr] = parts;
                           const lat = parseFloat(latStr);
                           const lon = parseFloat(lonStr);
+
+                          // Stop phone GPS if BLE GPS is back
+                          if (phoneGpsWatchIdRef.current !== null) {
+                            Geolocation.clearWatch(phoneGpsWatchIdRef.current);
+                            phoneGpsWatchIdRef.current = null;
+                            setUsePhoneGps(false);
+                            console.log("🛑 Stopped phone GPS - BLE GPS restored");
+                          }
+
                           if (!isNaN(lat) && !isNaN(lon)) {
+                            uploadToFirebase(lat, lon, deviceIdRef.current, Number(timestamp), 'BLE');
                             webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lon}); true;`);
                           }
                         }
-                      })();
+                      }
+
+                      // 🔄 Handle LOCAL mode
+                      if (fullMsg.startsWith("LOCAL:")) {
+                        const now = Date.now();
+
+                        // Only process LOCAL mode if we haven't done so recently
+                        if (!lastLocalNotificationRef.current || now - lastLocalNotificationRef.current > 10000) {
+                          console.log("🔄 Switching to LOCAL mode");
+                          lastLocalNotificationRef.current = now;
+
+                          if (phoneGpsWatchIdRef.current !== null) {
+                            Geolocation.clearWatch(phoneGpsWatchIdRef.current);
+                            phoneGpsWatchIdRef.current = null;
+                            setUsePhoneGps(false);
+                            console.log("🛑 Stopped phone GPS - LOCAL mode activated");
+                          }
+
+                          hasSentSearching.current = false;
+
+                          const parts = fullMsg.replace("LOCAL:", "").split(",");
+                          if (parts.length >= 3) {
+                            const lat = parseFloat(parts[1]);
+                            const lon = parseFloat(parts[2]);
+                            if (!isNaN(lat) && !isNaN(lon)) {
+                              webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lon}); true;`);
+                            }
+                          }
+                        }
+                        return;
+                      }
                     }
                   }
-                }
-              );
-            }, 1000);
+                );
+              }, 1000);
+            }
           }
         }
+
+        updated.onDisconnected(() => {
+          console.log("🔌 BLE Disconnected");
+
+          // Stop phone GPS fallback on disconnection
+          if (phoneGpsWatchIdRef.current !== null) {
+            Geolocation.clearWatch(phoneGpsWatchIdRef.current);
+            phoneGpsWatchIdRef.current = null;
+            setUsePhoneGps(false);
+            console.log("🛑 Stopped phone GPS - BLE disconnected");
+          }
+
+          setConnectedDevice(null);
+          setGpsData('');
+          setGpsLog([]);
+          hasSentSearching.current = false;
+
+          setTimeout(() => {
+            reconnectBLE();
+            managerRef.current.startDeviceScan(null, null, (error, device) => {
+              if (error) return;
+              if (!device || !device.name || deviceMap.current.has(device.id)) return;
+              if (device.name.includes("GPS")) {
+                deviceMap.current.set(device.id, device);
+                setDevices(Array.from(deviceMap.current.values()));
+              }
+            });
+          }, 3000);
+        });
+      } catch (e) {
+        console.error('Connection error:', e);
+        Alert.alert('Failed to connect');
       }
+    };
 
-      updated.onDisconnected(() => {
-        setConnectedDevice(null);
-        setGpsData('');
-        setGpsLog([]);
-
-        setTimeout(() => {
-          reconnectBLE();
-          managerRef.current.startDeviceScan(null, null, (error, device) => {
-            if (error) return;
-            if (!device || !device.name || deviceMap.current.has(device.id)) return;
-            if (device.name.includes("GPS")) {
-              deviceMap.current.set(device.id, device);
-              setDevices(Array.from(deviceMap.current.values()));
-            }
-          });
-        }, 3000);
-      });
-    } catch (e) {
-      console.error('Connection error:', e);
-      Alert.alert('Failed to connect');
-    }
-  };
 
   const renderLog = () => (
     <ScrollView style={{ maxHeight: 200, marginTop: 10 }}>
