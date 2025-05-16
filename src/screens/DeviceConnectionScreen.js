@@ -10,6 +10,8 @@ import {
   FlatList,
   TouchableOpacity,
   ScrollView,
+  StyleSheet,
+  ImageBackground
 } from 'react-native';
 import { BleManager, State } from 'react-native-ble-plx';
 import { decode as atob } from 'base-64';
@@ -18,7 +20,10 @@ import { getDatabase, ref, set } from '@react-native-firebase/database';
 import { getApp } from '@react-native-firebase/app';
 import auth from '@react-native-firebase/auth';
 import { useAuth } from '../contexts/AuthContext';
-
+// const MOCK_DEVICES = [
+//   { id: 'MOCK-DEVICE-001', name: 'GPS Tracker A' },
+//   { id: 'MOCK-DEVICE-002', name: 'HelpBeacon Collar B' },
+// ];
 const app = getApp();
 const manager = new BleManager();
 const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
@@ -268,71 +273,136 @@ const DeviceConnectionScreen = () => {
     </ScrollView>
   );
 
-  return (
-    <View style={{ flex: 1 }}>
-      <View style={{ flex: 1 }}>
+return (
+    <ImageBackground source={require('../assets/Background.jpeg')} style={styles.background}>
+      <View style={styles.overlay} />
+
+      <View style={styles.container}>
+        <Text style={styles.title}>🔗 Device Connection</Text>
+        <ScrollView>
         {connectedDevice ? (
-          <View style={{ padding: 20 }}>
-            <Text style={{ fontSize: 18, marginBottom: 10 }}>
-              Connected to: {connectedDevice.name}
+          <View style={styles.card}>
+            <Text style={styles.label}>
+              Connected to : <Text style={styles.value}>{connectedDevice.name}</Text>
             </Text>
-            <Text style={{ fontSize: 20, fontWeight: 'bold' }}>GPS Output</Text>
-            {gpsData ? (
-              <ScrollView style={{ maxHeight: 80 }}>
-                <Text style={{ fontSize: 16 }} numberOfLines={3} adjustsFontSizeToFit>
-                  {gpsData}
-                </Text>
-              </ScrollView>
-            ) : (
-              <Text style={{ fontSize: 16, color: '#999' }}>Waiting for GPS data...</Text>
-            )}
-            {renderLog()}
+            <Text style={[styles.label, { marginTop: 12 }]}>
+              GPS Output : <Text style={styles.value}>{gpsData}</Text>
+            </Text>
+            
           </View>
         ) : (
           <FlatList
-            contentContainerStyle={{ paddingTop: 50 }}
+            contentContainerStyle={{ paddingVertical: 10 }}
             data={devices}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
-              <TouchableOpacity
-                style={{ padding: 15, borderBottomWidth: 1, borderColor: '#ccc' }}
-                onPress={() => connectToDevice(item)}
-              >
-                <Text>{item.name}</Text>
-                <Text style={{ fontSize: 12, color: '#888' }}>{item.id}</Text>
+              <TouchableOpacity style={styles.deviceItem} onPress={() => connectToDevice(item)}>
+                <Text style={styles.deviceName}>{item.name}</Text>
+                <Text style={styles.deviceId}>{item.id}</Text>
               </TouchableOpacity>
             )}
             ListHeaderComponent={
-              <Text style={{ fontSize: 18, textAlign: 'center', marginBottom: 10 }}>
-                Nearby GPS Devices
-              </Text>
+              <Text style={styles.subTitle}>Nearby Mock Devices</Text>
             }
           />
         )}
-      </View>
+        </ScrollView>
 
-      <View style={{ flex: 1 }}>
-        <WebView
-          ref={webViewRef}
-          source={{ uri: 'file:///android_asset/map_sender.html' }}
-          originWhitelist={['*']}
-          javaScriptEnabled={true}
-          domStorageEnabled={true}
-          style={{ flex: 1, backgroundColor: 'white' }}
-          onLoadEnd={() => {
-            console.log("✅ WebView loaded – injecting default coords");
-            setTimeout(() => {
-              webViewRef.current?.injectJavaScript(`
-                updateMap(48.1351, 11.5820);
-                true;
-              `);
-            }, 500);
-          }}
-          onError={(e) => console.log("❌ WebView error:", e.nativeEvent)}
-        />
+        <View style={styles.mapContainer}>
+          <WebView
+            ref={webViewRef}
+            source={{ uri: 'file:///android_asset/map_sender.html' }}
+            originWhitelist={['*']}
+            javaScriptEnabled
+            domStorageEnabled
+            style={styles.map}
+            onLoadEnd={() => {
+              setTimeout(() => {
+                webViewRef.current?.injectJavaScript(`updateMap(48.1351, 11.5820); true;`);
+              }, 500);
+            }}
+          />
+        </View>
       </View>
-    </View>
+    </ImageBackground>
   );
 };
 
 export default DeviceConnectionScreen;
+const styles = StyleSheet.create({
+  // deviceItem: { padding: 15, borderBottomWidth: 1, borderColor: '#ccc' },
+  // deviceId: { fontSize: 12, color: '#888' },
+  background: { flex: 1 },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  container: { flex: 1, padding: 16 },
+  title: {
+    fontSize: 30,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center',
+    marginVertical: 24,
+    textShadowColor: '#000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 4,
+  },
+  subTitle: {
+    fontSize: 20,
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  card: {
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 35,
+  },
+  label: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333',
+  },
+  value: {
+    fontSize: 18,
+    color: '#444',
+    marginTop: 4,
+  },
+  deviceItem: {
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 2,
+  },
+  deviceName: { fontSize: 16, fontWeight: '600', color: '#1a1a1a' },
+  deviceId: { fontSize: 12, color: '#555' },
+  mapContainer: {
+    height:440,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#fff',
+    marginBottom: 115,
+  },
+  map: { flex: 1 },
+    datacard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 19,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    flexDirection: 'column',
+    marginTop: 20,
+  },
+});
