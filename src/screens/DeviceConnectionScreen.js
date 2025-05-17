@@ -215,145 +215,160 @@ const DeviceConnectionScreen = () => {
                     }
 
                     if (characteristic?.value) {
-                      const fragment = atob(characteristic.value).trim();
-                      bleBufferRef.current += fragment;
+                        const fragment = atob(characteristic.value).trim();
+                        console.log("🧩 BLE Fragment:", fragment);
 
-                      console.log("🧩 BLE Fragment:", fragment);
-
-                      if (fragment.includes("EMERGENCY:") || fragment.includes("LOCAL:")) {
-                        bleBufferRef.current = fragment;
-                      }
-
-                      const fullMsg = bleBufferRef.current.trim();
-                      const isEmergency = fullMsg.startsWith("EMERGENCY:");
-                      const commaCount = (fullMsg.match(/,/g) || []).length;
-
-                      // 💡 Handle EMERGENCY with NO GPS yet
-                      if (isEmergency && commaCount === 0 && !hasSentSearching.current) {
-                        const now = Date.now();
-
-                        // Only send initial emergency if we haven't sent one recently
-                        if (!lastEmergencyNotificationRef.current ||
-                            now - lastEmergencyNotificationRef.current > 30000) {
-                          console.log("⚠️ Emergency mode - starting phone GPS fallback");
-                          uploadToFirebase(0, 0, deviceIdRef.current, now, 'BLE', true);
-                          lastEmergencyNotificationRef.current = now;
-                        }
-
-                        hasSentSearching.current = true;
-                        bleBufferRef.current = "";
-
-                        if (phoneGpsWatchIdRef.current === null) {
-                          setUsePhoneGps(true);
-                          phoneGpsWatchIdRef.current = Geolocation.watchPosition(
-                            (pos) => {
-                              const { latitude, longitude } = pos.coords;
-                              uploadToFirebase(latitude, longitude, deviceIdRef.current, Date.now(), 'PHONE');
-                              webViewRef.current?.injectJavaScript(`updateMap(${latitude}, ${longitude}); true;`);
-                            },
-                            (err) => console.error("📵 Phone GPS Error:", err),
-                            {
-                              enableHighAccuracy: true,
-                              distanceFilter: 50, // Only update when moved 50+ meters
-                              interval: 10000,
-                              fastestInterval: 5000,
-                              timeout: 10000,
-                              maximumAge: 0
+                        // Always accumulate unless it's a complete SEARCHING message
+                        if (fragment === "EMERGENCY:SEARCHING" || fragment.startsWith("LOCAL:")) {
+                            bleBufferRef.current = fragment;
+                        } else {
+                            // Handle case where a new message starts before previous was complete
+                            if (fragment.startsWith("EMERGENCY:")) {
+                                bleBufferRef.current = fragment;
+                            } else {
+                                bleBufferRef.current += fragment;
                             }
-                          );
                         }
-                        return;
-                      }
 
-                      // ✅ Handle EMERGENCY with GPS
-                      if (isEmergency && commaCount >= 2) {
-                        const raw = fullMsg.replace("EMERGENCY:", "");
-                        const parts = raw.split(",");
+                        const fullMsg = bleBufferRef.current.trim();
+                        console.log("🧵 Buffer:", fullMsg);
 
-                        if (parts.length === 3) {
-                          const [timestamp, latStr, lonStr] = parts;
-                          const lat = parseFloat(latStr);
-                          const lon = parseFloat(lonStr);
+                        const isEmergency = fullMsg.startsWith("EMERGENCY:");
+                        const isLocal = fullMsg.startsWith("LOCAL:");
+                        const isSearching = fullMsg === "EMERGENCY:SEARCHING";
+                        const commaCount = (fullMsg.match(/,/g) || []).length;
 
-                          // Stop phone GPS if BLE GPS is back
-                          if (phoneGpsWatchIdRef.current !== null) {
-                            Geolocation.clearWatch(phoneGpsWatchIdRef.current);
-                            phoneGpsWatchIdRef.current = null;
-                            setUsePhoneGps(false);
-                            console.log("🛑 Stopped phone GPS - BLE GPS restored");
-                          }
+                        // 🚨 Handle SEARCHING message
+                        if (isSearching && !hasSentSearching.current) {
+                            const now = Date.now();
+                            console.log("⚠️ Emergency SEARCHING — starting phone GPS fallback");
 
-                          if (!isNaN(lat) && !isNaN(lon)) {
-                            uploadToFirebase(lat, lon, deviceIdRef.current, Number(timestamp), 'BLE');
-                            webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lon}); true;`);
-                          }
+                            if (!lastEmergencyNotificationRef.current || now - lastEmergencyNotificationRef.current > 30000) {
+                                uploadToFirebase(0, 0, deviceIdRef.current, now, 'BLE', true);
+                                lastEmergencyNotificationRef.current = now;
+                            }
+
+                            hasSentSearching.current = true;
+                            bleBufferRef.current = "";
+
+                            if (phoneGpsWatchIdRef.current === null) {
+                                setUsePhoneGps(true);
+                                phoneGpsWatchIdRef.current = Geolocation.watchPosition(
+                                    (pos) => {
+                                        const { latitude, longitude } = pos.coords;
+                                        console.log("📍 Phone GPS:", latitude, longitude);
+                                        uploadToFirebase(latitude, longitude, deviceIdRef.current, Date.now(), 'PHONE');
+                                        webViewRef.current?.injectJavaScript(`updateMap(${latitude}, ${longitude}); true;`);
+                                    },
+                                    (err) => console.error("📵 Phone GPS Error:", err),
+                                    {
+                                        enableHighAccuracy: true,
+                                        distanceFilter: 50,
+                                        interval: 10000,
+                                        fastestInterval: 5000,
+                                        timeout: 10000,
+                                        maximumAge: 0,
+                                    }
+                                );
+                            }
+                            return;
                         }
-                      }
 
-                      // 🔄 Handle LOCAL mode
-                      if (fullMsg.startsWith("LOCAL:")) {
-                        const now = Date.now();
+                        // Handle GPS coordinates (now more tolerant of partial messages)
+                        if (isEmergency && commaCount >= 1 && !fullMsg.includes("SEARCHING")) {
+                            // Only process if we have at least timestamp and partial coords
+                            const raw = fullMsg.replace("EMERGENCY:", "");
+                            const parts = raw.split(",");
 
-                        // Only process LOCAL mode if we haven't done so recently
-                        if (!lastLocalNotificationRef.current || now - lastLocalNotificationRef.current > 10000) {
-                          console.log("🔄 Switching to LOCAL mode");
-                          lastLocalNotificationRef.current = now;
+                            // If we have complete coordinates (timestamp, lat, lon)
+                            if (parts.length >= 3 && parts[0] && parts[1] && parts[2]) {
+                                const [timestamp, latStr, lonStr] = parts;
+                                const lat = parseFloat(latStr);
+                                const lon = parseFloat(lonStr);
 
-                          if (phoneGpsWatchIdRef.current !== null) {
-                            Geolocation.clearWatch(phoneGpsWatchIdRef.current);
-                            phoneGpsWatchIdRef.current = null;
-                            setUsePhoneGps(false);
-                            console.log("🛑 Stopped phone GPS - LOCAL mode activated");
-                          }
+                                if (!isNaN(lat) && !isNaN(lon)) {
+                                    console.log("📡 Valid BLE GPS:", lat, lon);
+                                    hasSentSearching.current = false;
 
-                          hasSentSearching.current = false;
+                                    if (phoneGpsWatchIdRef.current !== null) {
+                                        Geolocation.clearWatch(phoneGpsWatchIdRef.current);
+                                        phoneGpsWatchIdRef.current = null;
+                                        setUsePhoneGps(false);
+                                        console.log("🛑 Stopped phone GPS - BLE GPS restored");
+                                    }
 
-                          const parts = fullMsg.replace("LOCAL:", "").split(",");
-                          if (parts.length >= 3) {
+                                    uploadToFirebase(lat, lon, deviceIdRef.current, Number(timestamp), 'BLE');
+                                    webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lon}); true;`);
+                                    bleBufferRef.current = "";
+                                } else {
+                                    console.warn("⚠️ Invalid GPS data parsed from BLE message", { latStr, lonStr });
+                                }
+                            } else {
+                                console.log("🔍 Partial BLE GPS data received, waiting for more...", parts);
+                            }
+                            return;
+                        }
+
+                        // 🔄 LOCAL mode (unchanged)
+                        if (isLocal && commaCount >= 2) {
+                            const parts = fullMsg.replace("LOCAL:", "").split(",");
                             const lat = parseFloat(parts[1]);
                             const lon = parseFloat(parts[2]);
+
                             if (!isNaN(lat) && !isNaN(lon)) {
-                              webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lon}); true;`);
+                                console.log("📍 LOCAL GPS:", lat, lon);
+                                hasSentSearching.current = false;
+
+                                if (phoneGpsWatchIdRef.current !== null) {
+                                    Geolocation.clearWatch(phoneGpsWatchIdRef.current);
+                                    phoneGpsWatchIdRef.current = null;
+                                    setUsePhoneGps(false);
+                                    console.log("🛑 Stopped phone GPS - LOCAL mode activated");
+                                }
+
+                                webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lon}); true;`);
+                                bleBufferRef.current = "";
                             }
-                          }
+                            return;
                         }
-                        return;
-                      }
                     }
                   }
                 );
               }, 1000);
             }
           }
+
         }
 
         updated.onDisconnected(() => {
-          console.log("🔌 BLE Disconnected");
+            console.log("🔌 BLE Disconnected");
 
-          // Stop phone GPS fallback on disconnection
-          if (phoneGpsWatchIdRef.current !== null) {
-            Geolocation.clearWatch(phoneGpsWatchIdRef.current);
-            phoneGpsWatchIdRef.current = null;
-            setUsePhoneGps(false);
-            console.log("🛑 Stopped phone GPS - BLE disconnected");
-          }
+            // Reset searching flag on disconnection
+            hasSentSearching.current = false;  // <-- Add this line
 
-          setConnectedDevice(null);
-          setGpsData('');
-          setGpsLog([]);
-          hasSentSearching.current = false;
+            // Stop phone GPS fallback on disconnection
+            if (phoneGpsWatchIdRef.current !== null) {
+                Geolocation.clearWatch(phoneGpsWatchIdRef.current);
+                phoneGpsWatchIdRef.current = null;
+                setUsePhoneGps(false);
+                console.log("🛑 Stopped phone GPS - BLE disconnected");
+            }
 
-          setTimeout(() => {
-            reconnectBLE();
-            managerRef.current.startDeviceScan(null, null, (error, device) => {
-              if (error) return;
-              if (!device || !device.name || deviceMap.current.has(device.id)) return;
-              if (device.name.includes("GPS")) {
-                deviceMap.current.set(device.id, device);
-                setDevices(Array.from(deviceMap.current.values()));
-              }
-            });
-          }, 3000);
+            setConnectedDevice(null);
+            setGpsData('');
+            setGpsLog([]);
+
+            setTimeout(() => {
+                reconnectBLE();
+                managerRef.current.startDeviceScan(null, null, (error, device) => {
+                    if (error) return;
+                    if (!device || !device.name || deviceMap.current.has(device.id)) return;
+                    if (device.name.includes("GPS")) {
+                        deviceMap.current.set(device.id, device);
+                        setDevices(Array.from(deviceMap.current.values()));
+                    }
+                });
+            }, 3000);
         });
       } catch (e) {
         console.error('Connection error:', e);

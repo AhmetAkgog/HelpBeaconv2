@@ -21,7 +21,7 @@ const AuthWrapper = () => {
   return (
     <NavigationContainer independent={true}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {user ? (
+        {user && user.emailVerified ? (
           <Stack.Screen name="MainTabs" component={MainTabs} />
         ) : (
           <Stack.Screen name="Login" component={LoginSignupScreen} />

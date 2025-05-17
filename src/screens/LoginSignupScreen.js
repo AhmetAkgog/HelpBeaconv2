@@ -14,6 +14,7 @@ import {
 import auth from '@react-native-firebase/auth';
 import database from '@react-native-firebase/database';
 import Icon from 'react-native-vector-icons/Feather';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const LoginSignupScreen = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -34,7 +35,35 @@ const LoginSignupScreen = () => {
 
     try {
       if (isLogin) {
-        await auth().signInWithEmailAndPassword(email, password);
+        const userCredential = await auth().signInWithEmailAndPassword(email, password);
+        const user = userCredential.user;
+
+        if (!user.emailVerified) {
+          Alert.alert('Email Not Verified', 'Please verify your email before logging in.');
+          await auth().signOut();
+          return;
+        }
+
+        // ✅ Try to get the stored names (if any)
+        const pendingFirstName = await AsyncStorage.getItem('pendingFirstName');
+        const pendingLastName = await AsyncStorage.getItem('pendingLastName');
+
+        const safeEmail = email.toLowerCase().replace(/\./g, ',');
+
+        await database().ref(`users/${user.uid}/publicProfile`).set({
+          firstName: pendingFirstName || '',
+          lastName: pendingLastName || '',
+          displayName: `${pendingFirstName || ''} ${pendingLastName || ''}`.trim(),
+          email,
+        });
+
+        await database().ref(`users/${user.uid}/email`).set(email);
+        await database().ref(`emailLookup/${safeEmail}`).set(user.uid);
+
+        // ✅ Clean up storage so it's not reused
+        await AsyncStorage.removeItem('pendingFirstName');
+        await AsyncStorage.removeItem('pendingLastName');
+
         Alert.alert('Success', 'Logged in successfully!');
       } else {
         if (!firstName || !lastName) {
@@ -45,20 +74,26 @@ const LoginSignupScreen = () => {
         const userCredential = await auth().createUserWithEmailAndPassword(email, password);
         const user = userCredential.user;
 
-        const safeEmail = email.toLowerCase().replace(/\./g, ',');
+        // Send verification link
+        await user.sendEmailVerification();
 
-        await database().ref(`users/${user.uid}/publicProfile`).set({
-          firstName,
-          lastName,
-          displayName: `${firstName} ${lastName}`,
-          email,
-        });
+        Alert.alert(
+          'Verify your email',
+          'A verification link has been sent to your email. Please verify before logging in.'
+        );
 
-        await database().ref(`users/${user.uid}/email`).set(email);
-        await database().ref(`emailLookup/${safeEmail}`).set(user.uid);
+        // ❌ DO NOT write to Realtime Database yet
 
-        Alert.alert('Success', 'Account created successfully!');
+        // ✅ OPTIONAL: Store first/last name in AsyncStorage for later use
+        // await AsyncStorage.setItem('pendingFirstName', firstName);
+        // await AsyncStorage.setItem('pendingLastName', lastName);
+
+        await AsyncStorage.setItem('pendingFirstName', firstName);
+        await AsyncStorage.setItem('pendingLastName', lastName);
+
+        await auth().signOut();
       }
+
     } catch (error) {
       console.log(error);
       Alert.alert('Authentication Error', error.message);
