@@ -45,24 +45,28 @@ const LoginSignupScreen = () => {
         }
 
         // ✅ Try to get the stored names (if any)
-        const pendingFirstName = await AsyncStorage.getItem('pendingFirstName');
-        const pendingLastName = await AsyncStorage.getItem('pendingLastName');
+        const profileRef = database().ref(`users/${user.uid}/publicProfile`);
+        const snapshot = await profileRef.once('value');
 
-        const safeEmail = email.toLowerCase().replace(/\./g, ',');
+        if (!snapshot.exists()) {
+          const pendingFirstName = await AsyncStorage.getItem('pendingFirstName');
+          const pendingLastName = await AsyncStorage.getItem('pendingLastName');
 
-        await database().ref(`users/${user.uid}/publicProfile`).set({
-          firstName: pendingFirstName || '',
-          lastName: pendingLastName || '',
-          displayName: `${pendingFirstName || ''} ${pendingLastName || ''}`.trim(),
-          email,
-        });
+          await profileRef.set({
+            firstName: pendingFirstName || '',
+            lastName: pendingLastName || '',
+            displayName: `${pendingFirstName || ''} ${pendingLastName || ''}`.trim(),
+            email,
+          });
 
-        await database().ref(`users/${user.uid}/email`).set(email);
-        await database().ref(`emailLookup/${safeEmail}`).set(user.uid);
+          const safeEmail = email.toLowerCase().replace(/\./g, ',');
+          await database().ref(`users/${user.uid}/email`).set(email);
+          await database().ref(`emailLookup/${safeEmail}`).set(user.uid);
 
-        // ✅ Clean up storage so it's not reused
-        await AsyncStorage.removeItem('pendingFirstName');
-        await AsyncStorage.removeItem('pendingLastName');
+          await AsyncStorage.removeItem('pendingFirstName');
+          await AsyncStorage.removeItem('pendingLastName');
+        }
+
 
         Alert.alert('Success', 'Logged in successfully!');
       } else {
