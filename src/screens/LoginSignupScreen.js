@@ -27,6 +27,23 @@ const LoginSignupScreen = () => {
   const scheme = useColorScheme();
   const isDark = scheme === 'dark';
 
+  const handleForgotPassword = () => {
+    if (!email) {
+      Alert.alert('Enter Email', 'Please enter your email above first.');
+      return;
+    }
+
+    auth()
+      .sendPasswordResetEmail(email)
+      .then(() => {
+        Alert.alert('Reset Email Sent', 'Please check your inbox to reset your password.');
+      })
+      .catch(error => {
+        console.log(error);
+        Alert.alert('Error', error.message);
+      });
+  };
+
   const handleAuth = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Email and password are required');
@@ -44,7 +61,6 @@ const LoginSignupScreen = () => {
           return;
         }
 
-        // ✅ Try to get the stored names (if any)
         const profileRef = database().ref(`users/${user.uid}/publicProfile`);
         const snapshot = await profileRef.once('value');
 
@@ -67,7 +83,6 @@ const LoginSignupScreen = () => {
           await AsyncStorage.removeItem('pendingLastName');
         }
 
-
         Alert.alert('Success', 'Logged in successfully!');
       } else {
         if (!firstName || !lastName) {
@@ -78,19 +93,12 @@ const LoginSignupScreen = () => {
         const userCredential = await auth().createUserWithEmailAndPassword(email, password);
         const user = userCredential.user;
 
-        // Send verification link
         await user.sendEmailVerification();
 
         Alert.alert(
           'Verify your email',
           'A verification link has been sent to your email. Please verify before logging in.'
         );
-
-        // ❌ DO NOT write to Realtime Database yet
-
-        // ✅ OPTIONAL: Store first/last name in AsyncStorage for later use
-        // await AsyncStorage.setItem('pendingFirstName', firstName);
-        // await AsyncStorage.setItem('pendingLastName', lastName);
 
         await AsyncStorage.setItem('pendingFirstName', firstName);
         await AsyncStorage.setItem('pendingLastName', lastName);
@@ -163,6 +171,9 @@ const LoginSignupScreen = () => {
             </TouchableOpacity>
           </View>
 
+
+
+
           <TouchableOpacity style={styles.button} onPress={handleAuth}>
             <View style={styles.buttonContent}>
               <Icon name="log-in" size={18} color="#fff" style={{ marginRight: 8 }} />
@@ -171,6 +182,13 @@ const LoginSignupScreen = () => {
               </Text>
             </View>
           </TouchableOpacity>
+
+          {isLogin && (
+                      <TouchableOpacity onPress={handleForgotPassword} style={{ marginBottom: 16 }}>
+                        <Text style={{ color: LOGO_RED, textAlign: 'center' }}>Forgot Password?</Text>
+                      </TouchableOpacity>
+                    )}
+
 
           <TouchableOpacity onPress={() => setIsLogin(!isLogin)}>
             <Text style={styles.toggleText}>

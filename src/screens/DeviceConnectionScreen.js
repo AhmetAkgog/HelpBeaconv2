@@ -19,7 +19,7 @@ import { getDatabase, ref, set } from '@react-native-firebase/database';
 import { getApp } from '@react-native-firebase/app';
 import auth from '@react-native-firebase/auth';
 import { useAuth } from '../contexts/AuthContext';
-import Geolocation from '@react-native-community/geolocation';
+import Geolocation from 'react-native-geolocation-service';
 
 const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 
@@ -266,8 +266,10 @@ const DeviceConnectionScreen = () => {
                                         distanceFilter: 50,
                                         interval: 10000,
                                         fastestInterval: 5000,
-                                        timeout: 10000,
+                                        timeout: 90000,
                                         maximumAge: 0,
+                                        forceRequestLocation: true,
+                                        showLocationDialog: true,
                                     }
                                 );
                             }
