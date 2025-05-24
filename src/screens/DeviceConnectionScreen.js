@@ -242,7 +242,7 @@ const DeviceConnectionScreen = () => {
                         if (isSearching && !hasSentSearching.current) {
                             const now = Date.now();
                             console.log("⚠️ Emergency SEARCHING — starting phone GPS fallback");
-
+                            setGpsData("EMERGENCY:SEARCHING");
                             if (!lastEmergencyNotificationRef.current || now - lastEmergencyNotificationRef.current > 30000) {
                                 uploadToFirebase(0, 0, deviceIdRef.current, now, 'BLE', true);
                                 lastEmergencyNotificationRef.current = now;
@@ -255,8 +255,10 @@ const DeviceConnectionScreen = () => {
                                 setUsePhoneGps(true);
                                 phoneGpsWatchIdRef.current = Geolocation.watchPosition(
                                     (pos) => {
+
                                         const { latitude, longitude } = pos.coords;
                                         console.log("📍 Phone GPS:", latitude, longitude);
+                                        setGpsData(`PHONE: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
                                         uploadToFirebase(latitude, longitude, deviceIdRef.current, Date.now(), 'PHONE');
                                         webViewRef.current?.injectJavaScript(`updateMap(${latitude}, ${longitude}); true;`);
                                     },
@@ -300,6 +302,7 @@ const DeviceConnectionScreen = () => {
                                     }
 
                                     uploadToFirebase(lat, lon, deviceIdRef.current, Number(timestamp), 'BLE');
+                                    setGpsData(`EMERGENCY: ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
                                     webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lon}); true;`);
                                     bleBufferRef.current = "";
                                 } else {
@@ -327,7 +330,7 @@ const DeviceConnectionScreen = () => {
                                     setUsePhoneGps(false);
                                     console.log("🛑 Stopped phone GPS - LOCAL mode activated");
                                 }
-
+                                setGpsData(`LOCAL: ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
                                 webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lon}); true;`);
                                 bleBufferRef.current = "";
                             }
