@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   emergencyButton: {
-    backgroundColor: '#FF1010',
+    backgroundColor: '#f72513',
     width: 80,
     height: 80,
     borderRadius: 40,
