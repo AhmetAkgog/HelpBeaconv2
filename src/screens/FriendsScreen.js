@@ -216,7 +216,7 @@ const FriendsScreen = () => {
 
             {activeTab === 'friends' ? (
               friendList.length > 0 ? (
-                <FlatList
+                <FlatList style={{ marginTop: 30 }}
                   data={friendList}
                   keyExtractor={(uid) => uid}
                   renderItem={({ item }) => <FriendItem uid={item} />}
@@ -230,7 +230,7 @@ const FriendsScreen = () => {
               )
             ) : (
               incomingRequests.length > 0 ? (
-                <FlatList
+                <FlatList style={{ marginTop: 30 }}
                   data={incomingRequests}
                   keyExtractor={(uid) => uid}
                   renderItem={({ item }) => <FriendItem uid={item} request />}
