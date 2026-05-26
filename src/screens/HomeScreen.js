@@ -20,7 +20,7 @@ const HomeScreen = () => {
   useEffect(() => {
     const loadEverything = async () => {
       if (!currentUID) return;
-
+      //Gets friend list
       const friendListRef = database().ref(`friendships/${currentUID}/friendList`);
       const friendSnap = await friendListRef.once("value");
       const friendMap = friendSnap.exists() ? friendSnap.val() : {};
@@ -48,7 +48,7 @@ const HomeScreen = () => {
                        friendId;
 
           let snapshot = null;
-          try {
+          try {//Checks friend emergencies
             const emergenciesRef = database().ref("emergencies");
             snapshot = await emergenciesRef
               .orderByChild("uid")

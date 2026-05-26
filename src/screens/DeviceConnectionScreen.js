@@ -41,19 +41,19 @@ function distanceBetween(pos1, pos2) {
 
 const DeviceConnectionScreen = () => {
   const { user, authInitialized } = useAuth();
-  const [devices, setDevices] = useState([]);
-  const deviceMap = useRef(new Map());
-  const [connectedDevice, setConnectedDevice] = useState(null);
-  const deviceIdRef = useRef("unknown");
-  const [gpsData, setGpsData] = useState('');
-  const [gpsLog, setGpsLog] = useState([]);
-  const webViewRef = useRef(null);
-  const hasSentSearching = useRef(false);
-  const lastUploadTimeRef = useRef(0);
-  const bleBufferRef = useRef("");
-  const managerRef = useRef(new BleManager());
-  const [usePhoneGps, setUsePhoneGps] = useState(false);
-  const phoneGpsWatchIdRef = useRef(null);
+  const [devices, setDevices] = useState([]); // BLE devices list
+  const deviceMap = useRef(new Map()); // Device lookup map
+  const [connectedDevice, setConnectedDevice] = useState(null); // Current device
+  const deviceIdRef = useRef("unknown"); // Device ID reference
+  const [gpsData, setGpsData] = useState(''); // Current GPS string
+  const [gpsLog, setGpsLog] = useState([]); // GPS history
+  const webViewRef = useRef(null); // WebView reference
+  const hasSentSearching = useRef(false); // Emergency state flag
+  const lastUploadTimeRef = useRef(0); // Rate limiting tracker
+  const bleBufferRef = useRef(""); // BLE message buffer
+  const managerRef = useRef(new BleManager()); // BLE manager instance
+  const [usePhoneGps, setUsePhoneGps] = useState(false); // Fallback GPS flag
+  const phoneGpsWatchIdRef = useRef(null); // GPS watch ID
 
   // Anti-spam tracking refs
   const lastEmergencyNotificationRef = useRef(null);
@@ -61,20 +61,20 @@ const DeviceConnectionScreen = () => {
   const lastLocalNotificationRef = useRef(null);
 
   const uploadToFirebase = async (lat, lon, deviceId, bootTimeMs, source = 'BLE', isInitial = false) => {
+    // Data validation and rate limiting
     const now = new Date().toISOString();
     const uid = auth().currentUser?.uid;
 
-    // Only send notification for initial emergency or significant location change
+    // Check if notification should be sent
     const shouldNotify = isInitial ||
                        (source === 'PHONE' &&
                         (!lastPhoneGpsLocationRef.current ||
                          distanceBetween(lastPhoneGpsLocationRef.current, {lat, lon}) > 50));
 
-    if (!shouldNotify && source === 'PHONE') {
-      console.log("📍 Phone GPS Update (throttled)");
-      return;
-    }
+    // Skip if throttled
+    if (!shouldNotify && source === 'PHONE') return;
 
+    // Prepare payload
     const data = {
       lat,
       lon,
@@ -86,9 +86,10 @@ const DeviceConnectionScreen = () => {
       isInitialNotification: isInitial
     };
 
-    const db = getDatabase(getApp());
+    // Sanitize device ID for Firebase path
     const safeDeviceId = (deviceId || "unknown").replace(/[:.#$\[\]]/g, '_');
 
+    // Upload to Realtime Database
     await set(ref(db, `/emergencies/${safeDeviceId}`), data)
       .then(() => {
         console.log("📡 Sent GPS to Firebase:", {source, isInitial});
@@ -117,7 +118,7 @@ const DeviceConnectionScreen = () => {
     const openLocationPermissionSettings = () => {
       Linking.openSettings();
     };
-
+    // Main BLE initialization
     const requestPermissions = async () => {
       const isAndroid12OrAbove = Platform.OS === 'android' && Platform.Version >= 31;
       const permissions = [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
@@ -128,7 +129,7 @@ const DeviceConnectionScreen = () => {
           'android.permission.BLUETOOTH_SCAN'
         );
       }
-
+      // Request permissions
       const results = await PermissionsAndroid.requestMultiple(permissions);
       const allGranted = Object.values(results).every(
         r => r === PermissionsAndroid.RESULTS.GRANTED
@@ -143,7 +144,7 @@ const DeviceConnectionScreen = () => {
       return allGranted;
     };
 
-    const startScan = async () => {
+    const startScan = async () => {// Start BLE device discovery
       const granted = await requestPermissions();
       if (!granted) return;
 
@@ -156,7 +157,7 @@ const DeviceConnectionScreen = () => {
         }
       });
     };
-
+    // Monitor Bluetooth state changes
     const monitorBluetooth = async () => {
       const hasPermission = await requestPermissions();
       if (!hasPermission) return;
@@ -167,7 +168,7 @@ const DeviceConnectionScreen = () => {
     };
 
     monitorBluetooth();
-
+    // Cleanup
     return () => {
       bleManager.destroy();
       managerRef.current = new BleManager();
@@ -190,11 +191,13 @@ const DeviceConnectionScreen = () => {
       } catch {}
 
       try {
+      // Connect and discover services
         const connected = await bleManager.connectToDevice(device.id);
         setConnectedDevice(connected);
         deviceIdRef.current = device.id;
         const updated = await connected.discoverAllServicesAndCharacteristics();
 
+        // Monitor characteristics
         const services = await updated.services();
 
         for (const service of services) {
@@ -204,6 +207,7 @@ const DeviceConnectionScreen = () => {
 
           for (const char of characteristics) {
             if (char.isNotifiable) {
+            // Set up notification handler
               setTimeout(() => {
                 connected.monitorCharacteristicForService(
                   service.uuid,
@@ -213,11 +217,11 @@ const DeviceConnectionScreen = () => {
                       console.error('Monitor error:', error);
                       return;
                     }
-
+                    // Process incoming data
                     if (characteristic?.value) {
                         const fragment = atob(characteristic.value).trim();
                         console.log("🧩 BLE Fragment:", fragment);
-
+                        // Message buffering logic
                         // Always accumulate unless it's a complete SEARCHING message
                         if (fragment === "EMERGENCY:SEARCHING" || fragment.startsWith("LOCAL:")) {
                             bleBufferRef.current = fragment;
@@ -229,7 +233,7 @@ const DeviceConnectionScreen = () => {
                                 bleBufferRef.current += fragment;
                             }
                         }
-
+                        // Handle different message types
                         const fullMsg = bleBufferRef.current.trim();
                         console.log("🧵 Buffer:", fullMsg);
 
@@ -292,8 +296,10 @@ const DeviceConnectionScreen = () => {
 
                                 if (!isNaN(lat) && !isNaN(lon)) {
                                     console.log("📡 Valid BLE GPS:", lat, lon);
-                                    hasSentSearching.current = false;
+                                    hasSentSearching.current = false;//bunu sonra true ya çevir
 
+
+                                    //TELEFONU DEVRE DIŞI BIRAKIYOR
                                     if (phoneGpsWatchIdRef.current !== null) {
                                         Geolocation.clearWatch(phoneGpsWatchIdRef.current);
                                         phoneGpsWatchIdRef.current = null;
